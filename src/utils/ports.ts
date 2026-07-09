@@ -1,0 +1,215 @@
+/**
+ * Lookup table: UNLOC port code → { lat, lon, name, continent }
+ * ~130 major global ports. Covers ~80% of AIS destination strings.
+ */
+export type Continent =
+  | 'europe'
+  | 'asia'
+  | 'north_america'
+  | 'south_america'
+  | 'africa'
+  | 'oceania'
+  | 'middle_east'
+
+export const CONTINENT_COLORS: Record<Continent, number> = {
+  europe:        0x4a9eff,  // blue
+  asia:          0xff6b35,  // orange
+  north_america: 0xffdd57,  // yellow
+  south_america: 0x7fff7f,  // green
+  africa:        0xff7f7f,  // coral
+  oceania:       0xcc88ff,  // purple
+  middle_east:   0xffcc44,  // amber
+}
+
+export const CONTINENT_LABELS: Record<Continent, string> = {
+  europe:        'Europe',
+  asia:          'Asia',
+  north_america: 'North America',
+  south_america: 'South America',
+  africa:        'Africa',
+  oceania:       'Oceania',
+  middle_east:   'Middle East',
+}
+
+export interface PortInfo {
+  lat: number
+  lon: number
+  name: string
+  continent: Continent
+}
+
+const PORT_DB: Record<string, PortInfo> = {
+  // ── Europe ────────────────────────────────────────────────────────────────
+  NLRTM: { lat: 51.95,  lon:   4.08, name: 'Rotterdam',       continent: 'europe' },
+  DEHAM: { lat: 53.54,  lon:   9.97, name: 'Hamburg',          continent: 'europe' },
+  BEANR: { lat: 51.22,  lon:   4.42, name: 'Antwerp',          continent: 'europe' },
+  GBLGP: { lat: 51.50,  lon:   0.48, name: 'London Gateway',   continent: 'europe' },
+  GBFXT: { lat: 51.96,  lon:   1.35, name: 'Felixstowe',       continent: 'europe' },
+  GBSOU: { lat: 50.90,  lon:  -1.40, name: 'Southampton',      continent: 'europe' },
+  GBGOO: { lat: 51.50,  lon:  -0.12, name: 'London',           continent: 'europe' },
+  GBLIVERPOOL: { lat: 53.45, lon: -3.00, name: 'Liverpool',    continent: 'europe' },
+  FRMRS: { lat: 43.30,  lon:   5.38, name: 'Marseille',        continent: 'europe' },
+  FRLEH: { lat: 49.49,  lon:   0.11, name: 'Le Havre',         continent: 'europe' },
+  ITGOA: { lat: 44.41,  lon:   8.93, name: 'Genoa',            continent: 'europe' },
+  ITLIV: { lat: 43.55,  lon:  10.31, name: 'Livorno',          continent: 'europe' },
+  ITTRS: { lat: 45.65,  lon:  13.77, name: 'Trieste',          continent: 'europe' },
+  ESBCN: { lat: 41.35,  lon:   2.17, name: 'Barcelona',        continent: 'europe' },
+  ESVLC: { lat: 39.46,  lon:  -0.33, name: 'Valencia',         continent: 'europe' },
+  ESALG: { lat: 36.14,  lon:  -5.45, name: 'Algeciras',        continent: 'europe' },
+  PTLEI: { lat: 38.71,  lon:  -9.14, name: 'Lisbon',           continent: 'europe' },
+  GRATH: { lat: 37.95,  lon:  23.62, name: 'Piraeus',          continent: 'europe' },
+  TRIZM: { lat: 38.46,  lon:  27.16, name: 'Izmir',            continent: 'europe' },
+  TRAMB: { lat: 40.98,  lon:  28.72, name: 'Ambarli',          continent: 'europe' },
+  TRIST: { lat: 41.01,  lon:  28.96, name: 'Istanbul',         continent: 'europe' },
+  DEBRE: { lat: 53.08,  lon:   8.80, name: 'Bremen',           continent: 'europe' },
+  PLGDN: { lat: 54.35,  lon:  18.67, name: 'Gdansk',           continent: 'europe' },
+  RULED: { lat: 54.71,  lon:  20.53, name: 'Kaliningrad',      continent: 'europe' },
+  RUARH: { lat: 44.73,  lon:  37.77, name: 'Novorossiysk',     continent: 'europe' },
+  UAODS: { lat: 46.48,  lon:  30.75, name: 'Odessa',           continent: 'europe' },
+  ROCON: { lat: 44.17,  lon:  28.65, name: 'Constanta',        continent: 'europe' },
+  DKAAR: { lat: 57.05,  lon:   9.92, name: 'Aarhus',           continent: 'europe' },
+  SEGOT: { lat: 57.70,  lon:  11.97, name: 'Gothenburg',       continent: 'europe' },
+  FIHEL: { lat: 60.17,  lon:  25.00, name: 'Helsinki',         continent: 'europe' },
+  NOOSLO: { lat: 59.91, lon:  10.76, name: 'Oslo',             continent: 'europe' },
+  NOSVG: { lat: 58.97,  lon:   5.73, name: 'Stavanger',        continent: 'europe' },
+  NLAMS: { lat: 52.37,  lon:   4.90, name: 'Amsterdam',        continent: 'europe' },
+  BEZEE: { lat: 51.34,  lon:   3.22, name: 'Zeebrugge',        continent: 'europe' },
+
+  // ── North America ─────────────────────────────────────────────────────────
+  USNYC: { lat: 40.67,  lon: -74.07, name: 'New York',         continent: 'north_america' },
+  USLAX: { lat: 33.75,  lon:-118.27, name: 'Los Angeles',      continent: 'north_america' },
+  USHOU: { lat: 29.75,  lon: -95.37, name: 'Houston',          continent: 'north_america' },
+  USLGB: { lat: 33.77,  lon:-118.20, name: 'Long Beach',       continent: 'north_america' },
+  USSAV: { lat: 32.09,  lon: -81.10, name: 'Savannah',         continent: 'north_america' },
+  USBAL: { lat: 39.27,  lon: -76.58, name: 'Baltimore',        continent: 'north_america' },
+  USNFO: { lat: 36.83,  lon: -76.30, name: 'Norfolk',          continent: 'north_america' },
+  USBOS: { lat: 42.35,  lon: -71.04, name: 'Boston',           continent: 'north_america' },
+  USNOT: { lat: 29.95,  lon: -90.05, name: 'New Orleans',      continent: 'north_america' },
+  USCHA: { lat: 32.78,  lon: -79.93, name: 'Charleston',       continent: 'north_america' },
+  USTAC: { lat: 47.25,  lon:-122.41, name: 'Tacoma',           continent: 'north_america' },
+  USSEA: { lat: 47.60,  lon:-122.33, name: 'Seattle',          continent: 'north_america' },
+  USPHL: { lat: 39.95,  lon: -75.14, name: 'Philadelphia',     continent: 'north_america' },
+  USJAX: { lat: 30.33,  lon: -81.66, name: 'Jacksonville',     continent: 'north_america' },
+  CAVAN: { lat: 49.29,  lon:-123.10, name: 'Vancouver',        continent: 'north_america' },
+  CAMTR: { lat: 45.50,  lon: -73.55, name: 'Montreal',         continent: 'north_america' },
+  CAHAL: { lat: 44.64,  lon: -63.58, name: 'Halifax',          continent: 'north_america' },
+  MXVER: { lat: 19.21,  lon: -96.14, name: 'Veracruz',         continent: 'north_america' },
+  MXLZC: { lat: 17.96,  lon:-102.16, name: 'Lazaro Cardenas',  continent: 'north_america' },
+  PAPTY: { lat:  8.97,  lon: -79.57, name: 'Colon/Manzanillo', continent: 'north_america' },
+
+  // ── South America ─────────────────────────────────────────────────────────
+  BRSSS: { lat:-23.95,  lon: -46.32, name: 'Santos',           continent: 'south_america' },
+  BRRIO: { lat:-22.90,  lon: -43.17, name: 'Rio de Janeiro',   continent: 'south_america' },
+  BRVDC: { lat:-20.32,  lon: -40.32, name: 'Vila Velha',       continent: 'south_america' },
+  BRPMO: { lat: -1.45,  lon: -48.50, name: 'Belem',            continent: 'south_america' },
+  CLVAP: { lat:-33.04,  lon: -71.63, name: 'Valparaiso',       continent: 'south_america' },
+  ARBNOS:{ lat:-34.58,  lon: -58.37, name: 'Buenos Aires',     continent: 'south_america' },
+  PECLL: { lat:-12.05,  lon: -77.13, name: 'Callao',           continent: 'south_america' },
+  COBUN: { lat:  3.89,  lon: -77.08, name: 'Buenaventura',     continent: 'south_america' },
+  VECCS: { lat: 10.65,  lon: -63.18, name: 'Puerto La Cruz',   continent: 'south_america' },
+  ECGYE: { lat: -2.28,  lon: -79.90, name: 'Guayaquil',        continent: 'south_america' },
+
+  // ── Asia ──────────────────────────────────────────────────────────────────
+  CNSHA: { lat: 31.23,  lon: 121.47, name: 'Shanghai',         continent: 'asia' },
+  CNNGB: { lat: 29.87,  lon: 121.55, name: 'Ningbo-Zhoushan',  continent: 'asia' },
+  CNSZX: { lat: 22.55,  lon: 114.30, name: 'Shenzhen',         continent: 'asia' },
+  CNGZU: { lat: 23.11,  lon: 113.25, name: 'Guangzhou',        continent: 'asia' },
+  CNXMN: { lat: 24.45,  lon: 118.07, name: 'Xiamen',           continent: 'asia' },
+  CNTXG: { lat: 39.02,  lon: 117.68, name: 'Tianjin',          continent: 'asia' },
+  CNQIN: { lat: 36.07,  lon: 120.32, name: 'Qingdao',          continent: 'asia' },
+  CNDAL: { lat: 38.91,  lon: 121.65, name: 'Dalian',           continent: 'asia' },
+  CNLYG: { lat: 34.73,  lon: 119.45, name: 'Lianyungang',      continent: 'asia' },
+  SGSIN: { lat:  1.29,  lon: 103.85, name: 'Singapore',        continent: 'asia' },
+  KRPUS: { lat: 35.10,  lon: 129.04, name: 'Busan',            continent: 'asia' },
+  KRINC: { lat: 37.45,  lon: 126.64, name: 'Incheon',          continent: 'asia' },
+  JPTYO: { lat: 35.63,  lon: 139.87, name: 'Tokyo',            continent: 'asia' },
+  JPYOK: { lat: 35.45,  lon: 139.65, name: 'Yokohama',         continent: 'asia' },
+  JPNGO: { lat: 35.05,  lon: 136.88, name: 'Nagoya',           continent: 'asia' },
+  JPOSA: { lat: 34.65,  lon: 135.40, name: 'Osaka',            continent: 'asia' },
+  JPKBE: { lat: 34.68,  lon: 135.21, name: 'Kobe',             continent: 'asia' },
+  TWKHH: { lat: 22.62,  lon: 120.27, name: 'Kaohsiung',        continent: 'asia' },
+  HKHKG: { lat: 22.29,  lon: 114.16, name: 'Hong Kong',        continent: 'asia' },
+  MYPKG: { lat:  2.98,  lon: 101.38, name: 'Port Klang',       continent: 'asia' },
+  MYPGU: { lat:  3.82,  lon: 103.32, name: 'Tanjung Pelepas',  continent: 'asia' },
+  THBKK: { lat: 13.58,  lon: 100.62, name: 'Laem Chabang',     continent: 'asia' },
+  VNSGN: { lat: 10.79,  lon: 106.73, name: 'Ho Chi Minh',      continent: 'asia' },
+  VNHPH: { lat: 20.86,  lon: 106.68, name: 'Haiphong',         continent: 'asia' },
+  IDJKT: { lat: -6.11,  lon: 106.88, name: 'Jakarta',          continent: 'asia' },
+  PHMNL: { lat: 14.59,  lon: 120.97, name: 'Manila',           continent: 'asia' },
+  BDCGP: { lat: 22.33,  lon:  91.83, name: 'Chittagong',       continent: 'asia' },
+  INMUN: { lat: 22.84,  lon:  69.72, name: 'Mundra',           continent: 'asia' },
+  INJNP: { lat: 18.95,  lon:  72.90, name: 'Nhava Sheva',      continent: 'asia' },
+  INCHENNAI: { lat: 13.10, lon: 80.29, name: 'Chennai',        continent: 'asia' },
+  INVOCC: { lat:  9.97,  lon:  76.27, name: 'Kochi',           continent: 'asia' },
+  PKKAR: { lat: 24.85,  lon:  66.99, name: 'Karachi',          continent: 'asia' },
+  LKLIF: { lat:  6.93,  lon:  79.84, name: 'Colombo',          continent: 'asia' },
+
+  // ── Middle East ───────────────────────────────────────────────────────────
+  UAEDB: { lat: 25.01,  lon:  55.06, name: 'Jebel Ali',        continent: 'middle_east' },
+  UAEAB: { lat: 24.47,  lon:  54.37, name: 'Abu Dhabi',        continent: 'middle_east' },
+  SADMM: { lat: 26.42,  lon:  50.09, name: 'Dammam',           continent: 'middle_east' },
+  SARAR: { lat: 26.71,  lon:  50.16, name: 'Ras Tanura',       continent: 'middle_east' },
+  IQUMQ: { lat: 30.03,  lon:  47.92, name: 'Umm Qasr',         continent: 'middle_east' },
+  KWKWI: { lat: 29.37,  lon:  47.99, name: 'Kuwait City',      continent: 'middle_east' },
+  BHMWI: { lat: 26.21,  lon:  50.59, name: 'Bahrain',          continent: 'middle_east' },
+  OMMCT: { lat: 23.60,  lon:  58.59, name: 'Muscat',           continent: 'middle_east' },
+  YRADE: { lat: 12.78,  lon:  45.00, name: 'Aden',             continent: 'middle_east' },
+  EGJED: { lat: 21.47,  lon:  39.19, name: 'Jeddah',           continent: 'middle_east' },
+  EGPSD: { lat: 31.26,  lon:  32.29, name: 'Port Said',        continent: 'middle_east' },
+  EGALY: { lat: 31.20,  lon:  29.88, name: 'Alexandria',       continent: 'middle_east' },
+  DJJIB: { lat: 11.60,  lon:  43.15, name: 'Djibouti',         continent: 'middle_east' },
+  IRBND: { lat: 27.17,  lon:  56.27, name: 'Bandar Abbas',     continent: 'middle_east' },
+  PKGWD: { lat: 25.12,  lon:  62.33, name: 'Gwadar',           continent: 'middle_east' },
+
+  // ── Africa ────────────────────────────────────────────────────────────────
+  NGAPP: { lat:  6.45,  lon:   3.38, name: 'Lagos/Apapa',      continent: 'africa' },
+  ZACPT: { lat:-33.91,  lon:  18.42, name: 'Cape Town',        continent: 'africa' },
+  ZADUR: { lat:-29.87,  lon:  31.04, name: 'Durban',           continent: 'africa' },
+  TZDAR: { lat: -6.82,  lon:  39.28, name: 'Dar es Salaam',    continent: 'africa' },
+  KEMBA: { lat: -4.07,  lon:  39.67, name: 'Mombasa',          continent: 'africa' },
+  GHTEM: { lat:  5.62,  lon:  -0.02, name: 'Tema',             continent: 'africa' },
+  CIABD: { lat:  5.25,  lon:  -4.02, name: 'Abidjan',          continent: 'africa' },
+  SNDKR: { lat: 14.69,  lon: -17.44, name: 'Dakar',            continent: 'africa' },
+  MAPTM: { lat: 33.60,  lon:  -7.62, name: 'Casablanca',       continent: 'africa' },
+  DZDEL: { lat: 36.77,  lon:   3.07, name: 'Algiers',          continent: 'africa' },
+  MZMPM: { lat:-25.97,  lon:  32.58, name: 'Maputo',           continent: 'africa' },
+  AOLAD: { lat: -8.82,  lon:  13.24, name: 'Luanda',           continent: 'africa' },
+  TZZNZ: { lat: -6.17,  lon:  39.18, name: 'Zanzibar',         continent: 'africa' },
+
+  // ── Oceania ───────────────────────────────────────────────────────────────
+  AUMEL: { lat:-37.81,  lon: 144.97, name: 'Melbourne',        continent: 'oceania' },
+  AUSYD: { lat:-33.87,  lon: 151.21, name: 'Sydney',           continent: 'oceania' },
+  AUBNE: { lat:-27.47,  lon: 153.02, name: 'Brisbane',         continent: 'oceania' },
+  AUFRM: { lat:-31.95,  lon: 115.86, name: 'Fremantle',        continent: 'oceania' },
+  AUADL: { lat:-34.93,  lon: 138.60, name: 'Adelaide',         continent: 'oceania' },
+  NZAKL: { lat:-36.84,  lon: 174.75, name: 'Auckland',         continent: 'oceania' },
+  PGPOM: { lat: -9.45,  lon: 147.17, name: 'Port Moresby',     continent: 'oceania' },
+}
+
+/**
+ * Look up a port by UNLOC code. Case-insensitive, takes first whitespace-delimited token.
+ */
+export function lookupPort(destination: string): PortInfo | null {
+  if (!destination) return null
+  const key = destination.trim().toUpperCase().split(/[\s,/]+/)[0]
+  return PORT_DB[key] ?? null
+}
+
+/** Flat array of all ports — used by PortMarkers for globe rendering */
+export interface PortListEntry extends PortInfo { code: string }
+
+export const PORTS_LIST: PortListEntry[] = Object.entries(PORT_DB).map(
+  ([code, p]) => ({ code, ...p }),
+)
+
+/** Infer continent from lat/lon when UNLOC lookup fails (coarse bounding-box approach) */
+export function continentFromLatLon(lat: number, lon: number): Continent {
+  if (lat > 35 && lon > -15 && lon < 65)   return 'europe'
+  if (lat > 10 && lon > 25 && lon < 75)    return 'middle_east'
+  if (lat > -10 && lon > 60 && lon < 150)  return 'asia'
+  if (lat > 0 && lon > -170 && lon < -50)  return 'north_america'
+  if (lat < 0 && lon > -82 && lon < -35)   return 'south_america'
+  if (lat > -40 && lon > -20 && lon < 55)  return 'africa'
+  if (lon > 110 || lat < -10)              return 'oceania'
+  return 'asia'
+}
