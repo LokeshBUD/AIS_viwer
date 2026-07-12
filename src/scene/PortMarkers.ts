@@ -8,9 +8,17 @@ const PORT_SIZE  = 0.018   // ~10px on 1080p
 const LABEL_SHOW_DIST = 175   // camera dist from globe center
 const LABEL_FULL_DIST = 130
 
+interface PortEntry {
+  dot:   THREE.Sprite
+  label: THREE.Sprite
+  dir:   THREE.Vector3   // unit vector pointing from globe center to port surface
+}
+
+const _camDir = new THREE.Vector3()
+
 export class PortMarkers {
-  private group  = new THREE.Group()
-  private labels: { sprite: THREE.Sprite }[] = []
+  private group   = new THREE.Group()
+  private entries: PortEntry[] = []
 
   constructor(scene: THREE.Scene) {
     this.build()
@@ -21,12 +29,12 @@ export class PortMarkers {
     for (const port of PORTS_LIST) {
       const col    = CONTINENT_COLORS[port.continent]
       const colHex = '#' + col.toString(16).padStart(6, '0')
-      const pos    = latLonToVec3(port.lat, port.lon, GLOBE_RADIUS, 0.3)
+      const pos    = latLonToVec3(port.lat, port.lon, GLOBE_RADIUS, 1.5)
+      const dir    = pos.clone().normalize()
 
-      // ── Port dot (billboard sprite, fixed screen size) ─────────────────────
-      const dotTex = buildDotTexture(col)
+      // ── Port dot ───────────────────────────────────────────────────────────
       const dotMat = new THREE.SpriteMaterial({
-        map:             dotTex,
+        map:             buildDotTexture(col),
         transparent:     true,
         depthTest:       true,
         depthWrite:      false,
@@ -37,37 +45,41 @@ export class PortMarkers {
       dot.scale.set(PORT_SIZE, PORT_SIZE, 1)
       this.group.add(dot)
 
-      // ── Port label (billboard sprite, fixed size, shown on zoom-in) ────────
-      const labelTex = buildLabelTexture(port.name, port.code, colHex)
+      // ── Port label ─────────────────────────────────────────────────────────
       const labelMat = new THREE.SpriteMaterial({
-        map:             labelTex,
+        map:             buildLabelTexture(port.name, port.code, colHex),
         transparent:     true,
-        depthTest:       false,
+        depthTest:       true,    // occluded by globe — no back-side bleed
         depthWrite:      false,
         sizeAttenuation: false,
         opacity:         0,
       })
       const label = new THREE.Sprite(labelMat)
-      // Position label slightly offset from dot (above it in screen space = shift along radial)
-      label.position.copy(pos).addScaledVector(pos.clone().normalize(), 1.0)
+      label.position.copy(pos).addScaledVector(dir, 1.0)
       label.scale.set(PORT_SIZE * 5.5, PORT_SIZE * 1.4, 1)
       label.visible = false
       this.group.add(label)
 
-      this.labels.push({ sprite: label })
+      this.entries.push({ dot, label, dir })
     }
   }
 
-  tick(camDist: number): void {
+  tick(camera: THREE.PerspectiveCamera): void {
+    const camDist  = camera.position.length()
     const showLabels = camDist < LABEL_SHOW_DIST
     const alpha = showLabels
       ? Math.min(1, (LABEL_SHOW_DIST - camDist) / (LABEL_SHOW_DIST - LABEL_FULL_DIST))
       : 0
 
-    for (const { sprite } of this.labels) {
-      sprite.visible = showLabels
-      if (showLabels) {
-        ;(sprite.material as THREE.SpriteMaterial).opacity = alpha
+    _camDir.copy(camera.position).normalize()
+
+    for (const { dot, label, dir } of this.entries) {
+      // Hemisphere cull — hide anything on the back side of the globe
+      const onFront = dir.dot(_camDir) > -0.05
+      dot.visible   = onFront
+      label.visible = onFront && showLabels
+      if (onFront && showLabels) {
+        ;(label.material as THREE.SpriteMaterial).opacity = alpha
       }
     }
   }

@@ -120,8 +120,9 @@ export class TileGlobe {
 
   constructor(scene: THREE.Scene) {
     scene.add(this.group)
-    this.loadZoom(2)                                // instant: 16 tiles
-    setTimeout(() => this.loadZoom(3), 1200)        // detail upgrade after initial paint
+    this.loadZoom(2)                                 //    0 ms —  16 tiles
+    setTimeout(() => this.loadZoom(3), 1200)         // 1200 ms —  64 tiles (country borders)
+    setTimeout(() => this.loadZoom(4), 4000)         // 4000 ms — 256 tiles (state lines, cities)
   }
 
   private loadZoom(z: number): void {
@@ -136,7 +137,6 @@ export class TileGlobe {
   private loadTile(z: number, tx: number, ty: number): void {
     const geo = createPatch(z, tx, ty)
 
-    // Invisible placeholder until texture loads
     const mat = new THREE.MeshBasicMaterial({
       transparent: true,
       opacity:     0,
@@ -144,7 +144,7 @@ export class TileGlobe {
     })
 
     const mesh = new THREE.Mesh(geo, mat)
-    mesh.renderOrder = z    // zoom-3 renders on top of zoom-2
+    mesh.renderOrder = z    // higher zoom renders on top
     this.group.add(mesh)
 
     const entry: TileEntry = { mesh, mat, z, tx, ty, ready: false }
@@ -153,32 +153,37 @@ export class TileGlobe {
     this.loader.load(
       CARTO(z, tx, ty),
       tex => {
-        tex.colorSpace   = THREE.SRGBColorSpace
-        mat.map          = tex
-        mat.opacity      = 1
-        mat.transparent  = false
-        mat.needsUpdate  = true
-        entry.ready = true
+        tex.colorSpace  = THREE.SRGBColorSpace
+        mat.map         = tex
+        mat.opacity     = 1
+        mat.transparent = false
+        mat.needsUpdate = true
+        entry.ready     = true
 
-        if (z === 3) this.hideLowerTile(tx, ty)
+        if (z > 2) this.hideLowerTile(z, tx, ty)
       },
     )
   }
 
-  /** When a zoom-3 tile (tx, ty) is ready, hide the covering zoom-2 tile */
-  private hideLowerTile(tx3: number, ty3: number): void {
-    const tx2 = Math.floor(tx3 / 2)
-    const ty2 = Math.floor(ty3 / 2)
-    const low = this.tiles.find(t => t.z === 2 && t.tx === tx2 && t.ty === ty2)
-    if (!low) return
+  /**
+   * When all 4 children at zoom z are ready for a given parent tile,
+   * hide the parent at zoom z-1 to avoid z-fighting.
+   */
+  private hideLowerTile(z: number, tx: number, ty: number): void {
+    const pz  = z - 1
+    const ptx = Math.floor(tx / 2)
+    const pty = Math.floor(ty / 2)
 
-    const covered = this.tiles.filter(
-      t => t.z === 3 &&
-        Math.floor(t.tx / 2) === tx2 &&
-        Math.floor(t.ty / 2) === ty2 &&
+    const parent = this.tiles.find(t => t.z === pz && t.tx === ptx && t.ty === pty)
+    if (!parent) return
+
+    const readyChildren = this.tiles.filter(
+      t => t.z === z &&
+        Math.floor(t.tx / 2) === ptx &&
+        Math.floor(t.ty / 2) === pty &&
         t.ready,
     )
-    if (covered.length === 4) low.mesh.visible = false
+    if (readyChildren.length === 4) parent.mesh.visible = false
   }
 
   dispose(): void {

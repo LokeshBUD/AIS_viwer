@@ -12,8 +12,8 @@
   --c-success: #00ff88;
   --c-warn:    #ffaa00;
   --c-danger:  #ff4444;
-  --c-text:    #b8cfe0;
-  --c-muted:   #4a6a88;
+  --c-text:    #ffffff;
+  --c-muted:   #a8c8e0;
   --font-mono: 'Courier New', Courier, monospace;
   --panel-bg:  rgba(5, 15, 30, 0.88);
   --blur:      blur(6px);
@@ -32,13 +32,7 @@ body {
   font-size: 12px;
 }
 
-#ais-canvas {
-  position: fixed;
-  inset: 0;
-  width: 100vw;
-  height: 100vh;
-  display: block;
-}
+/* canvas removed — 2D map only */
 
 #ui-root {
   position: fixed;
@@ -85,9 +79,8 @@ body {
 .hud-title {
   position: absolute;
   top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  text-align: center;
+  right: 16px;
+  text-align: right;
   font-size: 15px;
   letter-spacing: 4px;
   font-weight: bold;
@@ -102,6 +95,46 @@ body {
   letter-spacing: 3px;
   color: var(--c-muted);
   margin-top: 3px;
+}
+
+/* ─────────────────────────────────────────
+   Search bar (top-center, below title)
+───────────────────────────────────────── */
+.hud-search-wrap {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0;
+  pointer-events: all;
+}
+
+.hud-search {
+  background: var(--panel-bg);
+  border: 1px solid var(--c-border);
+  border-radius: 3px;
+  color: var(--c-text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  padding: 6px 32px 6px 10px;
+  width: 280px;
+  outline: none;
+  backdrop-filter: var(--blur);
+  transition: border-color 0.15s;
+}
+.hud-search::placeholder { color: var(--c-muted); }
+.hud-search:focus { border-color: var(--c-accent); }
+
+.hud-search-icon {
+  position: absolute;
+  right: 10px;
+  color: var(--c-muted);
+  font-size: 14px;
+  pointer-events: none;
+  line-height: 1;
 }
 
 /* ─────────────────────────────────────────
@@ -190,6 +223,108 @@ body {
   border-radius: 50%;
   flex-shrink: 0;
 }
+
+/* ─────────────────────────────────────────
+   Filter panel (left, below stats)
+───────────────────────────────────────── */
+.hud-filter {
+  top: 176px;
+  left: 16px;
+  min-width: 200px;
+}
+
+.filter-hdr {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.filter-badge {
+  background: var(--c-warn);
+  color: #000;
+  font-size: 9px;
+  font-weight: bold;
+  border-radius: 8px;
+  padding: 1px 5px;
+  flex-shrink: 0;
+}
+
+.filter-toggle {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--c-muted);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0 2px;
+  pointer-events: all;
+}
+.filter-toggle:hover { color: var(--c-accent); }
+
+.filter-body {
+  margin-top: 8px;
+}
+
+.filter-section-lbl {
+  font-size: 8px;
+  letter-spacing: 1.5px;
+  color: var(--c-muted);
+  margin-bottom: 4px;
+}
+
+.filter-checkboxes {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.filter-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  color: var(--c-text);
+  cursor: pointer;
+}
+.filter-check input[type=checkbox] {
+  accent-color: var(--c-accent);
+  cursor: pointer;
+}
+
+.filter-sog-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+.filter-sog-wrap input[type=range] {
+  flex: 1;
+  accent-color: var(--c-accent);
+}
+#fp-sog-val {
+  font-size: 10px;
+  color: var(--c-accent);
+  min-width: 40px;
+  text-align: right;
+}
+
+.filter-clear {
+  margin-top: 10px;
+  width: 100%;
+  background: none;
+  border: 1px solid var(--c-border);
+  color: var(--c-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  padding: 4px;
+  cursor: pointer;
+  border-radius: 2px;
+  transition: all 0.15s;
+}
+.filter-clear:hover { border-color: var(--c-accent); color: var(--c-accent); }
 
 /* ─────────────────────────────────────────
    Vessel Info panel (right)
@@ -314,6 +449,105 @@ body {
 }
 
 /* ─────────────────────────────────────────
+   Vessel Table (bottom-center)
+───────────────────────────────────────── */
+.hud-table {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(900px, calc(100vw - 420px));
+  max-width: 900px;
+  padding: 10px 12px 0;
+}
+
+.table-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--c-border);
+  margin-bottom: 0;
+}
+
+.table-toggle {
+  background: none;
+  border: none;
+  color: var(--c-muted);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0 2px;
+  pointer-events: all;
+}
+.table-toggle:hover { color: var(--c-accent); }
+
+.table-wrap {
+  display: none;
+  max-height: 220px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-border) transparent;
+  margin-top: 4px;
+}
+
+.vtable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+
+.vtable thead tr {
+  position: sticky;
+  top: 0;
+  background: var(--panel-bg);
+  z-index: 1;
+}
+
+.vtable th {
+  text-align: left;
+  color: var(--c-muted);
+  letter-spacing: 1px;
+  font-size: 9px;
+  padding: 4px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--c-border);
+  user-select: none;
+}
+.vtable th:hover { color: var(--c-accent); }
+.vtable th.sort-active { color: var(--c-accent); }
+.vtable th.sort-active::after {
+  content: attr(data-dir);
+  font-size: 8px;
+  margin-left: 4px;
+  opacity: 0.7;
+}
+.vtable th[data-dir="asc"]::after  { content: ' ▲'; }
+.vtable th[data-dir="desc"]::after { content: ' ▼'; }
+
+.vtable tbody tr {
+  cursor: pointer;
+  border-bottom: 1px solid rgba(26, 58, 92, 0.4);
+  transition: background 0.1s;
+}
+.vtable tbody tr:hover { background: rgba(0, 212, 255, 0.07); }
+
+.vtable td {
+  padding: 5px 8px;
+  color: var(--c-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+.td-name   { color: var(--c-text); font-weight: bold; max-width: 180px; }
+.td-sog    { font-weight: bold; }
+.td-dest   { color: var(--c-muted); max-width: 120px; }
+.td-status { color: var(--c-muted); }
+.td-age    { color: var(--c-muted); text-align: right; }
+
+/* ─────────────────────────────────────────
    Alert panel (bottom-right)
 ───────────────────────────────────────── */
 .hud-alerts {
@@ -386,32 +620,43 @@ body {
 }
 
 /* ─────────────────────────────────────────
-   View Toggle (3D / 2D)
+   Satellite / Map mode toggle button
 ───────────────────────────────────────── */
-.view-toggle {
+.map-mode-btn {
   position: absolute;
-  top: 16px;
-  right: 16px;
-  display: flex;
-  gap: 4px;
-  pointer-events: all;
-}
-
-.vtbtn {
+  top: 62px;
+  right: 10px;
+  z-index: 1000;
   background: var(--panel-bg);
   border: 1px solid var(--c-border);
   color: var(--c-muted);
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 1.5px;
-  padding: 6px 14px;
+  padding: 6px 12px;
   border-radius: 3px;
   cursor: pointer;
   backdrop-filter: var(--blur);
   transition: all 0.15s;
+  white-space: nowrap;
 }
-.vtbtn:hover       { border-color: var(--c-accent); color: var(--c-accent); }
-.vtbtn-active      { border-color: var(--c-accent); color: var(--c-accent); background: rgba(0,212,255,0.08); }
+.map-mode-btn:hover  { border-color: var(--c-accent); color: var(--c-accent); }
+.map-mode-btn.active { border-color: var(--c-accent); color: var(--c-accent); background: rgba(0,212,255,0.1); }
+
+/* ─────────────────────────────────────────
+   Port tooltip (Leaflet)
+───────────────────────────────────────── */
+.port-tooltip {
+  background: rgba(5,15,30,0.92) !important;
+  border: 1px solid var(--c-border) !important;
+  border-radius: 3px !important;
+  color: var(--c-text) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 11px !important;
+  padding: 4px 8px !important;
+  box-shadow: 0 0 10px rgba(0,212,255,0.1) !important;
+}
+.port-tooltip::before { display: none !important; }
 
 /* ─────────────────────────────────────────
    Leaflet Map Container
@@ -420,11 +665,6 @@ body {
   position: fixed;
   inset: 0;
   z-index: 5;
-  display: none;
-}
-
-#map-container.map-visible {
-  display: block;
 }
 
 /* Leaflet popup custom style */

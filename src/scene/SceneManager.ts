@@ -43,8 +43,8 @@ export class SceneManager {
     this.controls.rotateSpeed    = 0.65     // comfortable for both mouse and finger
     this.controls.zoomSpeed      = 1.0
     this.controls.enablePan      = false    // globe rotates, doesn't translate
-    this.controls.minDistance    = GLOBE_RADIUS + 1
-    this.controls.maxDistance    = 1800
+    this.controls.minDistance    = GLOBE_RADIUS * 1.15   // ~115 — just above surface
+    this.controls.maxDistance    = 550                   // globe always fills meaningful portion
     this.controls.maxPolarAngle  = Math.PI
 
     // Touch gestures:
@@ -55,8 +55,10 @@ export class SceneManager {
       TWO: THREE.TOUCH.DOLLY_ROTATE,
     }
 
-    // Zoom toward cursor/touch point (Google Maps feel)
-    this.controls.zoomToCursor = true
+    // zoomToCursor OFF — keeps globe fixed at center.
+    // When true, OrbitControls shifts camera sideways to zoom toward cursor,
+    // making the globe drift off-center. We always dolly toward target (0,0,0).
+    this.controls.zoomToCursor = false
 
     window.addEventListener('resize', this.onResize)
   }
@@ -110,6 +112,8 @@ export class SceneManager {
       this.camera.far  = camDist + GLOBE_RADIUS * 16
       this.camera.updateProjectionMatrix()
 
+      // Force orbit target to globe center every frame — prevents any drift
+      this.controls.target.set(0, 0, 0)
       this.controls.update()
       this.tickers.forEach(t => t(dt))
       this.renderer.render(this.scene, this.camera)

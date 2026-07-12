@@ -2,28 +2,29 @@ import type { WSStatus } from '../ais/WebSocketClient'
 
 export class HUD {
   private vesselCountEl!: HTMLElement
-  private alertCountEl!: HTMLElement
-  private wsStatusEl!: HTMLElement
-  private wsDotel!: HTMLElement
-  private msgRateEl!: HTMLElement
-  private coordEl!: HTMLElement
-  private onToggle?: () => void
+  private alertCountEl!:  HTMLElement
+  private wsStatusEl!:    HTMLElement
+  private wsDotel!:       HTMLElement
+  private msgRateEl!:     HTMLElement
+  private coordEl!:       HTMLElement
+  private onSearchCb?: (query: string) => void
 
   constructor() {
     const root = document.getElementById('ui-root')!
     root.innerHTML = `
       <div class="hud-wrap">
 
-        <!-- Top center: title + view toggle -->
+        <!-- Top center: title -->
         <div class="hud-title">
           <span class="accent">AIS</span>&nbsp;MARITIME&nbsp;DASHBOARD
           <div class="hud-subtitle">LIVE GLOBAL VESSEL TRACKING</div>
         </div>
 
-        <!-- View toggle (top-right of title area) -->
-        <div class="view-toggle">
-          <button id="btn-3d"  class="vtbtn vtbtn-active">3D GLOBE</button>
-          <button id="btn-2d"  class="vtbtn">2D SATELLITE</button>
+        <!-- Search bar (top center, below title) -->
+        <div class="hud-search-wrap">
+          <input id="vessel-search" class="hud-search" type="text"
+            placeholder="Search vessel name or MMSI…" autocomplete="off" spellcheck="false" />
+          <span class="hud-search-icon">⌕</span>
         </div>
 
         <!-- Top left: stats -->
@@ -65,7 +66,7 @@ export class HUD {
           <div class="legend-row"><span class="dot" style="background:#cc88ff"></span>OCEANIA</div>
           <div class="legend-row"><span class="dot" style="background:#888899"></span>UNKNOWN DEST</div>
           <div class="legend-row" style="margin-top:4px;font-size:9px;color:var(--c-muted);border-top:1px solid var(--c-border);padding-top:4px">
-            ARC = GREAT CIRCLE ROUTE
+            DASHED LINE = MARITIME ROUTE
           </div>
         </div>
 
@@ -77,9 +78,6 @@ export class HUD {
           <div class="hud-panel-header">ANOMALY ALERTS</div>
           <div id="alert-list" class="alert-list"></div>
         </div>
-
-        <!-- Grid overlay -->
-        <div class="hud-grid-overlay"></div>
 
         <!-- Corner decorations -->
         <div class="corner corner-tl"></div>
@@ -95,17 +93,15 @@ export class HUD {
     this.wsDotel       = document.getElementById('ws-dot')!
     this.msgRateEl     = document.getElementById('stat-msgrate')!
     this.coordEl       = document.getElementById('coord-display')!
-    document.getElementById('btn-3d')!.addEventListener('click', () => this.setView('3d'))
-    document.getElementById('btn-2d')!.addEventListener('click', () => this.setView('2d'))
+
+    const searchEl = document.getElementById('vessel-search') as HTMLInputElement
+    searchEl.addEventListener('input', () => this.onSearchCb?.(searchEl.value.trim()))
+    searchEl.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { searchEl.value = ''; this.onSearchCb?.('') }
+    })
   }
 
-  onViewToggle(cb: () => void): void { this.onToggle = cb }
-
-  private setView(view: '3d' | '2d'): void {
-    document.getElementById('btn-3d')!.classList.toggle('vtbtn-active', view === '3d')
-    document.getElementById('btn-2d')!.classList.toggle('vtbtn-active', view === '2d')
-    this.onToggle?.()
-  }
+  onSearch(cb: (query: string) => void): void { this.onSearchCb = cb }
 
   setVesselCount(n: number): void {
     this.vesselCountEl.textContent = n.toString()
