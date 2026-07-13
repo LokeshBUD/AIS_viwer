@@ -330,7 +330,7 @@ Visual exploration of global shipping patterns — which routes are busiest, whi
 | :-------------------- | :---------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------: |
 | **Geofence Alerts**   | Backend / Engine  | Implement efficient point-in-polygon checks (e.g., ray-casting or spatial indexing) against pre-defined polygon zones (`PolygonAlert`) on incoming position updates.           | 🟡 In Progress |
 | **AIS Gap Detection** | Backend / State   | Monitor absolute global timestamps per`MMSI`. Trigger a dark-vessel anomaly state if a transmission drop exceeds $N$ minutes while last known coordinates indicate open ocean. | 🟡 In Progress |
-| **Vessel Clustering** | Frontend / Canvas | Replace dense overlapping canvas markers at low zoom levels with dynamic, count-labeled cluster rings to optimize client-side render loops and HUD clarity.                    | 🟡 In Progress |
+| **Vessel Clustering** | Frontend / Canvas | Replace dense overlapping canvas markers at low zoom levels with dynamic, count-labeled cluster rings to optimize client-side render loops and HUD clarity.                    |  🟢 Complete   |
 
 ### Medium term
 

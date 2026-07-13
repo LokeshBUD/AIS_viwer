@@ -15,36 +15,36 @@ const TILE_SAT_BASE = 'https://server.arcgisonline.com/ArcGIS/rest/services/Worl
 const TILE_SAT_LBLS = 'https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png'
 
 const MIN_ZOOM  = Math.max(2, Math.ceil(Math.log2(window.innerWidth / 256)))
-const ICON_ZOOM = 8   // zoom level at which canvas → divIcon switch happens
+const ICON_ZOOM = 8   // zoom ≥ this → SVG ship icons; below → cluster bubbles
 
-// Visual state type used across both marker types
-type VisState = 'normal' | 'selected' | 'dimmed' | 'hidden'
-type AnyMarker = L.CircleMarker | L.Marker
-
-// Canvas styles per state
-const CS: Record<VisState, L.CircleMarkerOptions> = {
-  normal:   { radius: 4, fillOpacity: 0.85, weight: 1.2, opacity: 1.0 },
-  selected: { radius: 8, fillOpacity: 1.0,  weight: 2.5, opacity: 1.0 },
-  dimmed:   { radius: 3, fillOpacity: 0.15, weight: 0.5, opacity: 0.4 },
-  hidden:   { radius: 0, fillOpacity: 0,    weight: 0,   opacity: 0.0 },
+// Cell size in degrees — halves every 2 zoom levels so each zoom-in splits clusters by ~2, not 4
+// zoom 2-3→20°, 4-5→10°, 6-7→5°
+function clusterCellDeg(zoom: number): number {
+  return 20 / Math.pow(2, Math.max(0, Math.floor((zoom - 2) / 2)))
 }
+
+type VisState = 'normal' | 'selected' | 'dimmed' | 'hidden'
+type MapMode   = 'cluster' | 'icon'
+
 
 export class MapView {
   private map: L.Map | null = null
   private container: HTMLDivElement
 
-  // Active markers — either L.CircleMarker (canvas mode) or L.Marker (icon mode)
-  private markers    = new Map<number, AnyMarker>()
+  // Individual vessel icon markers — only used in icon mode (zoom ≥ 8)
+  private markers       = new Map<number, L.Marker>()
+  // Cluster bubble markers — only used in cluster mode
+  private clusterMarkers: L.Marker[] = []
   // Desired visual state per vessel (persists across mode switches)
-  private visStates  = new Map<number, VisState>()
-  // All vessel data — kept regardless of marker type or viewport
-  private states     = new Map<number, VesselState>()
+  private visStates     = new Map<number, VisState>()
+  // All vessel data — kept regardless of mode or viewport
+  private states        = new Map<number, VesselState>()
 
   private routeLine:    L.Polyline | null = null
   private historyLines: L.Polyline[] = []
   private selectedMmsi: number | null = null
   private renderer!:    L.Canvas          // canvas for port markers + polylines
-  private iconMode      = false
+  private mode:         MapMode = 'cluster'
 
   private pending    = new Map<number, VesselState>()
   private flushId:   ReturnType<typeof setInterval> | null = null
@@ -64,9 +64,12 @@ export class MapView {
   start(allVessels: ReadonlyMap<number, VesselState>, onCoords?: (lat: number, lon: number) => void): void {
     this.renderer = L.canvas({ padding: 0.5 })
 
+    const initialZoom = Math.max(MIN_ZOOM, 3)
+    this.mode = initialZoom >= ICON_ZOOM ? 'icon' : 'cluster'
+
     this.map = L.map(this.container, {
       center:              [20, 0],
-      zoom:                Math.max(MIN_ZOOM, 3),
+      zoom:                initialZoom,
       minZoom:             MIN_ZOOM,
       maxZoom:             14,
       zoomControl:         false,
@@ -93,14 +96,17 @@ export class MapView {
       this.map.on('mousemove', (e: L.LeafletMouseEvent) => onCoords(e.latlng.lat, e.latlng.lng))
     }
     this.map.on('click', () => { if (this.selectedMmsi !== null) this.deselect() })
-
-    // Mode switching on zoom, viewport refresh on pan (icon mode only)
     this.map.on('zoomend', () => this.onZoomChange())
-    this.map.on('moveend', () => { if (this.iconMode) this.refreshIconViewport() })
+    this.map.on('moveend', () => {
+      if (this.mode === 'icon')    this.refreshIconViewport()
+      if (this.mode === 'cluster') this.buildClusters()
+    })
 
     this.buildPortMarkers()
 
+    // Populate state; markers created only for non-cluster modes
     for (const v of allVessels.values()) this.upsert(v)
+    if (this.mode === 'cluster') this.buildClusters()
 
     this.subs.push(
       EventBus.on<VesselState>(Events.VESSEL_UPDATED, v => { this.pending.set(v.mmsi, v) }),
@@ -131,43 +137,108 @@ export class MapView {
   private onZoomChange(): void {
     if (!this.map) return
     const zoom = this.map.getZoom()
-    if (zoom >= ICON_ZOOM && !this.iconMode) {
+
+    if (zoom >= ICON_ZOOM && this.mode !== 'icon') {
       this.switchToIconMode()
-    } else if (zoom < ICON_ZOOM && this.iconMode) {
-      this.switchToCanvasMode()
-    } else if (this.iconMode) {
+    } else if (zoom < ICON_ZOOM && this.mode !== 'cluster') {
+      this.switchToClusterMode()
+    } else if (this.mode === 'icon') {
       this.refreshIconViewport()
+    } else {
+      this.buildClusters()  // cell size changes every zoom level
     }
+  }
+
+  private switchToClusterMode(): void {
+    this.mode = 'cluster'
+    // Remove any individual icon markers left from icon mode
+    for (const m of this.markers.values()) m.remove()
+    this.markers.clear()
+    this.buildClusters()
   }
 
   private switchToIconMode(): void {
     if (!this.map) return
-    this.iconMode = true
-    // Remove all canvas markers
-    for (const m of this.markers.values()) m.remove()
-    this.markers.clear()
-    // Create divIcon markers for in-viewport vessels only
+    this.mode = 'icon'
+    this.clearClusters()
     const bounds = this.map.getBounds()
     for (const v of this.states.values()) {
       if (bounds.contains([v.lat, v.lon])) this.createIconMarker(v)
     }
   }
 
-  private switchToCanvasMode(): void {
+  // ── Cluster mode ──────────────────────────────────────────────────────────────
+
+  private buildClusters(): void {
     if (!this.map) return
-    this.iconMode = false
-    // Remove all icon markers
-    for (const m of this.markers.values()) m.remove()
-    this.markers.clear()
-    // Re-create canvas markers for ALL vessels
-    for (const v of this.states.values()) this.createCanvasMarker(v)
+    this.clearClusters()
+
+    const zoom    = this.map.getZoom()
+    const cellDeg = clusterCellDeg(zoom)
+    // Pad bounds so cells near edge still appear
+    const bounds  = this.map.getBounds().pad(0.15)
+
+    interface Cell { count: number; lat: number; lon: number; colorCounts: Map<string, number> }
+    const cells = new Map<string, Cell>()
+
+    for (const v of this.states.values()) {
+      const row = Math.floor(v.lat / cellDeg)
+      const col = Math.floor(v.lon / cellDeg)
+      const centerLat = (row + 0.5) * cellDeg
+      const centerLon = (col + 0.5) * cellDeg
+      // Skip cells whose center is outside the padded viewport
+      if (!bounds.contains([centerLat, centerLon] as L.LatLngExpression)) continue
+
+      const key = `${row}:${col}`
+      if (!cells.has(key)) {
+        cells.set(key, { count: 0, lat: centerLat, lon: centerLon, colorCounts: new Map() })
+      }
+      const cell = cells.get(key)!
+      cell.count++
+      const color = this.vesselColor(v)
+      cell.colorCounts.set(color, (cell.colorCounts.get(color) ?? 0) + 1)
+    }
+
+    const targetZoom = Math.min(zoom + 2, ICON_ZOOM)
+
+    for (const cell of cells.values()) {
+      // Dominant color = most common vessel category in this cell
+      let dominantColor = '#4a9eff'
+      let maxCount = 0
+      for (const [color, n] of cell.colorCounts) {
+        if (n > maxCount) { maxCount = n; dominantColor = color }
+      }
+
+      const label = cell.count >= 1000 ? `${(cell.count / 1000).toFixed(1)}k` : cell.count.toString()
+      const size  = cell.count > 200 ? 44 : cell.count > 50 ? 36 : 26
+
+      const icon = L.divIcon({
+        html:       `<div class="vessel-cluster" style="width:${size}px;height:${size}px;border-color:${dominantColor}80"><span>${label}</span></div>`,
+        className:  '',
+        iconSize:   [size, size],
+        iconAnchor: [size / 2, size / 2],
+      })
+
+      const m = L.marker([cell.lat, cell.lon] as L.LatLngExpression, { icon, interactive: true })
+      m.on('click', (e: L.LeafletMouseEvent) => {
+        L.DomEvent.stopPropagation(e)
+        this.map?.flyTo([cell.lat, cell.lon], targetZoom, { duration: 0.5 })
+      })
+      m.addTo(this.map!)
+      this.clusterMarkers.push(m)
+    }
   }
 
-  /** Add icon markers for newly visible vessels, remove for out-of-viewport */
+  private clearClusters(): void {
+    for (const m of this.clusterMarkers) m.remove()
+    this.clusterMarkers = []
+  }
+
+  // ── Icon viewport refresh ─────────────────────────────────────────────────────
+
   private refreshIconViewport(): void {
     if (!this.map) return
     const bounds = this.map.getBounds()
-    // Remove markers that scrolled out
     for (const [mmsi, m] of this.markers) {
       const v = this.states.get(mmsi)
       if (!v || !bounds.contains([v.lat, v.lon])) {
@@ -175,7 +246,6 @@ export class MapView {
         this.markers.delete(mmsi)
       }
     }
-    // Add markers for vessels now in view
     for (const v of this.states.values()) {
       if (!this.markers.has(v.mmsi) && bounds.contains([v.lat, v.lon])) {
         this.createIconMarker(v)
@@ -187,25 +257,6 @@ export class MapView {
 
   private vesselColor(v: VesselState): string {
     return '#' + VesselMeshFactory.getColor(v.vesselCategory).toString(16).padStart(6, '0')
-  }
-
-  private createCanvasMarker(v: VesselState): void {
-    if (!this.map) return
-    const hex   = this.vesselColor(v)
-    const state = this.visStates.get(v.mmsi) ?? 'normal'
-    const m = L.circleMarker([v.lat, v.lon] as L.LatLngExpression, {
-      ...CS[state],
-      color:     hex,
-      fillColor: hex,
-      renderer:  this.renderer,
-    })
-    m.bindPopup(() => this.popupHtml(v), { maxWidth: 240, className: 'ais-popup' })
-    m.on('click', (e: L.LeafletMouseEvent) => {
-      L.DomEvent.stopPropagation(e)
-      EventBus.emit(Events.VESSEL_SELECTED, v.mmsi)
-    })
-    m.addTo(this.map)
-    this.markers.set(v.mmsi, m)
   }
 
   private createIconMarker(v: VesselState): void {
@@ -232,11 +283,7 @@ export class MapView {
     this.visStates.set(mmsi, state)
     const m = this.markers.get(mmsi)
     if (!m) return
-    if (m instanceof L.CircleMarker) {
-      m.setStyle(CS[state])
-    } else {
-      setVesselMarkerState(m as L.Marker, state)
-    }
+    setVesselMarkerState(m as L.Marker, state)
   }
 
   // ── Vessel selection ──────────────────────────────────────────────────────────
@@ -381,25 +428,19 @@ export class MapView {
       this.visStates.set(vessel.mmsi, state)
     }
 
+    // In cluster mode individual markers are not used — clusters rebuild on zoom/pan
+    if (this.mode === 'cluster') return
+
     const hex = this.vesselColor(vessel)
     const m   = this.markers.get(vessel.mmsi)
 
     if (!m) {
-      // In icon mode: only create marker if vessel is in viewport
-      if (this.iconMode) {
-        const bounds = this.map.getBounds()
-        if (bounds.contains([vessel.lat, vessel.lon])) this.createIconMarker(vessel)
-      } else {
-        this.createCanvasMarker(vessel)
-      }
+      // Icon mode: only create marker if vessel is in viewport
+      const bounds = this.map.getBounds()
+      if (bounds.contains([vessel.lat, vessel.lon])) this.createIconMarker(vessel)
     } else {
-      // Update existing marker in place
       m.setLatLng([vessel.lat, vessel.lon])
-      if (m instanceof L.CircleMarker) {
-        m.setStyle({ color: hex, fillColor: hex })
-      } else {
-        updateVesselIconTransform(m as L.Marker, hex, vessel.cog)
-      }
+      updateVesselIconTransform(m, hex, vessel.cog)
     }
 
     // Re-apply filter if active

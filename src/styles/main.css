@@ -715,6 +715,35 @@ body {
 .ais-popup-coord  { color: var(--c-muted); font-size: 9px; }
 
 /* ─────────────────────────────────────────
+   Cluster bubbles (zoom ≤ 4)
+───────────────────────────────────────── */
+.vessel-cluster {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 2px solid transparent;          /* color set inline per dominant category */
+  background: rgba(5, 15, 30, 0.82);
+  backdrop-filter: blur(4px);
+  box-shadow: 0 0 10px rgba(0, 212, 255, 0.15), inset 0 0 8px rgba(0, 40, 70, 0.4);
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.vessel-cluster:hover {
+  transform: scale(1.15);
+  box-shadow: 0 0 18px rgba(0, 212, 255, 0.35);
+}
+.vessel-cluster span {
+  color: #ffffff;
+  font-family: var(--font-mono);
+  font-weight: bold;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ─────────────────────────────────────────
    Vessel SVG icons
 ───────────────────────────────────────── */
 .vi {
