@@ -74,6 +74,7 @@ graph TD
     %% -----------------------------------------------------------------
     ExternalStream == "wss://stream.aisstream.io" ==> AIS
     AIS == "ws://localhost:3001/ws" ==> WS_Client
+```
 ### Server (`server/`)
 
 
@@ -95,7 +96,6 @@ The server is a thin relay — it does not process or interpret AIS messages. It
 The client is a single-page application bundled by Vite. It receives raw AIS JSON from the relay WebSocket and handles all parsing, state management, rendering, and intelligence locally in the browser.
 
 **Data pipeline:**
-
 ```
 WebSocketClient (ws events)
   → raw JSON string
