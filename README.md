@@ -19,33 +19,49 @@ A real-time global vessel tracking dashboard powered by live AIS (Automatic Iden
 ---
 
 ## Architecture
-
 ```
-┌─────────────────────────────────────────────────────┐
-│                    Browser (Client)                 │
-│  Vite + TypeScript + Leaflet.js                     │
-│                                                     │
-│  WebSocketClient → VesselTracker → EventBus         │
-│       ↓                  ↓                          │
-│  AnomalyDetector    MapView (hybrid canvas/icon)    │
-│       ↓                  ↓                          │
-│  AlertManager       VesselTable / FilterPanel / HUD │
-└─────────────────────────────────────────────────────┘
-              WebSocket  ws://localhost:3001/ws
-┌─────────────────────────────────────────────────────┐
-│                   Node.js Server                    │
-│  Express + ws                                       │
-│                                                     │
-│  AISRelay ──── connects to aisstream.io             │
-│    - Caches latest position + static data per MMSI  │
-│    - Sends SNAPSHOT to new clients on connect       │
-│    - Forwards all live messages to all clients      │
-│    - Health endpoint: GET /health                   │
-└─────────────────────────────────────────────────────┘
-              WebSocket  wss://stream.aisstream.io
-```
+graph TD
+    %% Styling Definitions
+    classDef clientClass fill:#f9f9f9,stroke:#333,stroke-width:1px;
+    classDef serverClass fill:#f9f9f9,stroke:#333,stroke-width:1px;
+    classDef externalClass fill:#fff,stroke:#666,stroke-dasharray: 5 5;
 
+    %% Client Subgraph
+    subgraph Client ["Browser (Client) — Vite + TypeScript + Leaflet.js"]
+        WS_Client[WebSocketClient] --> VT[VesselTracker]
+        VT --> EB[EventBus]
+        
+        WS_Client --> AD[AnomalyDetector]
+        VT --> MV[MapView hybrid canvas/icon]
+        
+        AD --> AM[AlertManager]
+        MV --> UI[VesselTable / FilterPanel / HUD]
+    end
+    class Client clientClass;
+
+    %% Server Subgraph
+    subgraph Server ["Node.js Server — Express + ws"]
+        direction TB
+        
+        subgraph AIS ["AISRelay"]
+            direction TB
+            Cache[- Caches latest position + static data per MMSI]
+            Snapshot[- Sends SNAPSHOT to new clients on connect]
+            Forward[- Forwards all live messages to all clients]
+        end
+        
+        Health[Health endpoint: GET /health]
+    end
+    class Server serverClass;
+
+    %% External Stream
+    ExternalStream[aisstream.io]:::externalClass
+
+    %% Connections
+    WS_Client == "ws://localhost:3001/ws" ==> AIS
+    AIS == "wss://stream.aisstream.io" ==> ExternalStream
 ### Server (`server/`)
+```
 
 The server is a thin relay — it does not process or interpret AIS messages. Its only job is to:
 
