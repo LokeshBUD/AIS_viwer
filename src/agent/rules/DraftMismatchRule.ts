@@ -11,8 +11,13 @@ const EXPECTED: Record<string, [number, number]> = {
   military:  [20, 90],
 }
 
+// Minimum position history before trusting static draught field
+// Prevents false positives from stale/unconfigured crew data on newly-seen vessels
+const MIN_HISTORY_POINTS = 20
+
 export function checkDraftMismatch(vessel: VesselState): AnomalyAlert | null {
-  if (vessel.draught === 0) return null   // not reported
+  if (vessel.draught === 0) return null             // not reported
+  if (vessel.history.length < MIN_HISTORY_POINTS) return null  // too new, data unreliable
   const range = EXPECTED[vessel.vesselCategory]
   if (!range) return null
 

@@ -113,7 +113,7 @@ export class HUD {
   }
 
   setMsgRate(rate: number): void {
-    this.msgRateEl.textContent = rate > 0 ? `${rate}/s` : '—'
+    this.msgRateEl.textContent = `${rate}/s`
   }
 
   setWSStatus(status: WSStatus): void {

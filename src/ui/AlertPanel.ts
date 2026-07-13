@@ -8,12 +8,20 @@ const TYPE_ICON: Record<string, string> = {
 }
 
 export class AlertPanel {
+  private panel: HTMLElement
   private list: HTMLElement
   private alerts: AnomalyAlert[] = []
   private alertCount = 0
 
   constructor() {
-    this.list = document.getElementById('alert-list')!
+    this.panel = document.getElementById('alert-panel')!
+    this.list  = document.getElementById('alert-list')!
+
+    // Toggle panel visibility when clicking ALERTS stat
+    const alertStat = document.getElementById('stat-alerts')
+    alertStat?.addEventListener('click', () => this.panel.classList.toggle('hidden'))
+    if (alertStat) alertStat.style.cursor = 'pointer'
+
     EventBus.on<AnomalyAlert>(Events.ANOMALY_DETECTED, a => this.onAlert(a))
   }
 
@@ -27,8 +35,11 @@ export class AlertPanel {
       this.alertCount++
       if (this.alerts.length > 30) this.alerts.pop()
     }
-    this.render()
 
+    // Auto-show panel on first alert
+    if (this.alertCount === 1) this.panel.classList.remove('hidden')
+
+    this.render()
     EventBus.emit(Events.ALERT_UPDATED, this.alertCount)
   }
 

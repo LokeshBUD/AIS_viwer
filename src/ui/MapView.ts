@@ -8,36 +8,52 @@ import { VesselMeshFactory } from '../scene/VesselMeshFactory'
 import { PORTS_LIST, CONTINENT_COLORS, lookupPort } from '../utils/ports'
 import { maritimeRoute } from '../utils/maritimeRoute'
 import { destColor } from '../utils/destColor'
+import { makeVesselDivIcon, updateVesselIconTransform, setVesselMarkerState } from './VesselIcon'
 
 const TILE_VOYAGER  = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
 const TILE_SAT_BASE = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
 const TILE_SAT_LBLS = 'https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png'
 
-// Minimum zoom so world never appears smaller than the viewport (no repeat tiles)
-const MIN_ZOOM = Math.max(2, Math.ceil(Math.log2(window.innerWidth / 256)))
+const MIN_ZOOM  = Math.max(2, Math.ceil(Math.log2(window.innerWidth / 256)))
+const ICON_ZOOM = 8   // zoom level at which canvas → divIcon switch happens
 
-// Vessel circle styles
-const V_NORMAL   = { radius: 4,  fillOpacity: 0.85, weight: 1.2, opacity: 1.0 }
-const V_SELECTED = { radius: 8,  fillOpacity: 1.0,  weight: 2.5, opacity: 1.0 }
-const V_DIMMED   = { radius: 3,  fillOpacity: 0.15, weight: 0.5, opacity: 0.4 }
+// Visual state type used across both marker types
+type VisState = 'normal' | 'selected' | 'dimmed' | 'hidden'
+type AnyMarker = L.CircleMarker | L.Marker
+
+// Canvas styles per state
+const CS: Record<VisState, L.CircleMarkerOptions> = {
+  normal:   { radius: 4, fillOpacity: 0.85, weight: 1.2, opacity: 1.0 },
+  selected: { radius: 8, fillOpacity: 1.0,  weight: 2.5, opacity: 1.0 },
+  dimmed:   { radius: 3, fillOpacity: 0.15, weight: 0.5, opacity: 0.4 },
+  hidden:   { radius: 0, fillOpacity: 0,    weight: 0,   opacity: 0.0 },
+}
 
 export class MapView {
   private map: L.Map | null = null
   private container: HTMLDivElement
-  private markers    = new Map<number, L.CircleMarker>()
+
+  // Active markers — either L.CircleMarker (canvas mode) or L.Marker (icon mode)
+  private markers    = new Map<number, AnyMarker>()
+  // Desired visual state per vessel (persists across mode switches)
+  private visStates  = new Map<number, VisState>()
+  // All vessel data — kept regardless of marker type or viewport
   private states     = new Map<number, VesselState>()
+
   private routeLine:    L.Polyline | null = null
   private historyLines: L.Polyline[] = []
   private selectedMmsi: number | null = null
-  private renderer!:  L.Canvas
+  private renderer!:    L.Canvas          // canvas for port markers + polylines
+  private iconMode      = false
+
   private pending    = new Map<number, VesselState>()
   private flushId:   ReturnType<typeof setInterval> | null = null
   private subs:      Array<() => void> = []
-  private baseLayer:     L.TileLayer | null = null
-  private lblLayer:      L.TileLayer | null = null
-  private satMode        = true
-  private modeBtn:       HTMLButtonElement | null = null
-  private activeFilter:  FilterState | null = null
+  private baseLayer:    L.TileLayer | null = null
+  private lblLayer:     L.TileLayer | null = null
+  private satMode       = true
+  private modeBtn:      HTMLButtonElement | null = null
+  private activeFilter: FilterState | null = null
 
   constructor() {
     this.container = document.createElement('div')
@@ -45,10 +61,6 @@ export class MapView {
     document.body.appendChild(this.container)
   }
 
-  /**
-   * Initialize and show the map. Call once from main.ts.
-   * onCoords: fired on mousemove with current lat/lon for HUD display.
-   */
   start(allVessels: ReadonlyMap<number, VesselState>, onCoords?: (lat: number, lon: number) => void): void {
     this.renderer = L.canvas({ padding: 0.5 })
 
@@ -57,58 +69,45 @@ export class MapView {
       zoom:                Math.max(MIN_ZOOM, 3),
       minZoom:             MIN_ZOOM,
       maxZoom:             14,
-      zoomControl:         false,   // added manually below with correct position
+      zoomControl:         false,
       preferCanvas:        true,
       worldCopyJump:       true,
-      // Smoother, slower zoom
-      zoomSnap:            0.5,   // fractional zoom levels — no jarring jumps
-      zoomDelta:           1,    // zoom buttons change 0.5 levels at a time
-      wheelPxPerZoomLevel: 60,    // 120px scroll = 1 zoom level (default 60 = too fast)
+      zoomSnap:            0.5,
+      zoomDelta:           1,
+      wheelPxPerZoomLevel: 60,
       wheelDebounceTime:   40,
     })
 
-    // Start in satellite mode
     this.baseLayer = L.tileLayer(TILE_SAT_BASE, {
       attribution: '&copy; <a href="https://www.esri.com">Esri</a>',
-      maxZoom:     14,
-      keepBuffer:  4,
+      maxZoom: 14, keepBuffer: 4,
     }).addTo(this.map)
     this.lblLayer = L.tileLayer(TILE_SAT_LBLS, {
-      attribution: '',
-      subdomains:  'abcd',
-      maxZoom:     14,
-      keepBuffer:  4,
-      opacity:     0.85,
+      attribution: '', subdomains: 'abcd', maxZoom: 14, keepBuffer: 4, opacity: 0.85,
     }).addTo(this.map)
 
-    // Zoom control — bottom right
     L.control.zoom({ position: 'bottomright' }).addTo(this.map)
-
-    // Satellite / map toggle button
     this.addModeButton()
 
-    // Coordinate display
     if (onCoords) {
       this.map.on('mousemove', (e: L.LeafletMouseEvent) => onCoords(e.latlng.lat, e.latlng.lng))
     }
+    this.map.on('click', () => { if (this.selectedMmsi !== null) this.deselect() })
 
-    // Click empty map → deselect
-    this.map.on('click', () => {
-      if (this.selectedMmsi !== null) this.deselect()
-    })
+    // Mode switching on zoom, viewport refresh on pan (icon mode only)
+    this.map.on('zoomend', () => this.onZoomChange())
+    this.map.on('moveend', () => { if (this.iconMode) this.refreshIconViewport() })
 
-    // Port markers
     this.buildPortMarkers()
 
-    // Initial vessels
     for (const v of allVessels.values()) this.upsert(v)
 
-    // Live vessel updates (throttled to 5fps)
     this.subs.push(
       EventBus.on<VesselState>(Events.VESSEL_UPDATED, v => { this.pending.set(v.mmsi, v) }),
       EventBus.on<number>(Events.VESSEL_LOST, mmsi => {
         this.pending.delete(mmsi)
         this.states.delete(mmsi)
+        this.visStates.delete(mmsi)
         const m = this.markers.get(mmsi)
         if (m) { m.remove(); this.markers.delete(mmsi) }
         if (this.selectedMmsi === mmsi) this.deselect()
@@ -119,11 +118,7 @@ export class MapView {
 
     this.flushId = setInterval(() => {
       if (!this.map || this.pending.size === 0) return
-      // Upsert ALL pending vessels — no viewport filter.
-      // Canvas renderer culls off-screen markers automatically (zero render cost).
-      // Filtering by bounds causes stale data when panning to unvisited areas.
       for (const v of this.pending.values()) this.upsert(v)
-      // Redraw history trail if selected vessel received new positions
       if (this.selectedMmsi !== null && this.pending.has(this.selectedMmsi)) {
         this.drawHistoryTrail(this.selectedMmsi)
       }
@@ -131,95 +126,137 @@ export class MapView {
     }, 200)
   }
 
-  // ── Satellite / map mode toggle ──────────────────────────────────────────────
+  // ── Zoom / mode switching ─────────────────────────────────────────────────────
 
-  private addModeButton(): void {
-    const btn = document.createElement('button')
-    btn.className   = 'map-mode-btn active'
-    btn.textContent = 'MAP VIEW'
-    btn.addEventListener('click', e => { e.stopPropagation(); this.toggleMode() })
-    this.container.appendChild(btn)
-    this.modeBtn = btn
+  private onZoomChange(): void {
+    if (!this.map) return
+    const zoom = this.map.getZoom()
+    if (zoom >= ICON_ZOOM && !this.iconMode) {
+      this.switchToIconMode()
+    } else if (zoom < ICON_ZOOM && this.iconMode) {
+      this.switchToCanvasMode()
+    } else if (this.iconMode) {
+      this.refreshIconViewport()
+    }
   }
 
-  private toggleMode(): void {
+  private switchToIconMode(): void {
     if (!this.map) return
-    this.satMode = !this.satMode
+    this.iconMode = true
+    // Remove all canvas markers
+    for (const m of this.markers.values()) m.remove()
+    this.markers.clear()
+    // Create divIcon markers for in-viewport vessels only
+    const bounds = this.map.getBounds()
+    for (const v of this.states.values()) {
+      if (bounds.contains([v.lat, v.lon])) this.createIconMarker(v)
+    }
+  }
 
-    this.baseLayer?.remove()
-    this.lblLayer?.remove()
-    this.lblLayer = null
+  private switchToCanvasMode(): void {
+    if (!this.map) return
+    this.iconMode = false
+    // Remove all icon markers
+    for (const m of this.markers.values()) m.remove()
+    this.markers.clear()
+    // Re-create canvas markers for ALL vessels
+    for (const v of this.states.values()) this.createCanvasMarker(v)
+  }
 
-    if (this.satMode) {
-      this.baseLayer = L.tileLayer(TILE_SAT_BASE, {
-        attribution: '&copy; <a href="https://www.esri.com">Esri</a>',
-        maxZoom:    14,
-        keepBuffer: 4,
-      }).addTo(this.map)
-      this.lblLayer = L.tileLayer(TILE_SAT_LBLS, {
-        attribution: '',
-        subdomains:  'abcd',
-        maxZoom:     14,
-        keepBuffer:  4,
-        opacity:     0.85,
-      }).addTo(this.map)
-      if (this.modeBtn) { this.modeBtn.textContent = 'MAP VIEW'; this.modeBtn.classList.add('active') }
+  /** Add icon markers for newly visible vessels, remove for out-of-viewport */
+  private refreshIconViewport(): void {
+    if (!this.map) return
+    const bounds = this.map.getBounds()
+    // Remove markers that scrolled out
+    for (const [mmsi, m] of this.markers) {
+      const v = this.states.get(mmsi)
+      if (!v || !bounds.contains([v.lat, v.lon])) {
+        m.remove()
+        this.markers.delete(mmsi)
+      }
+    }
+    // Add markers for vessels now in view
+    for (const v of this.states.values()) {
+      if (!this.markers.has(v.mmsi) && bounds.contains([v.lat, v.lon])) {
+        this.createIconMarker(v)
+      }
+    }
+  }
+
+  // ── Marker creation ───────────────────────────────────────────────────────────
+
+  private vesselColor(v: VesselState): string {
+    return '#' + VesselMeshFactory.getColor(v.vesselCategory).toString(16).padStart(6, '0')
+  }
+
+  private createCanvasMarker(v: VesselState): void {
+    if (!this.map) return
+    const hex   = this.vesselColor(v)
+    const state = this.visStates.get(v.mmsi) ?? 'normal'
+    const m = L.circleMarker([v.lat, v.lon] as L.LatLngExpression, {
+      ...CS[state],
+      color:     hex,
+      fillColor: hex,
+      renderer:  this.renderer,
+    })
+    m.bindPopup(() => this.popupHtml(v), { maxWidth: 240, className: 'ais-popup' })
+    m.on('click', (e: L.LeafletMouseEvent) => {
+      L.DomEvent.stopPropagation(e)
+      EventBus.emit(Events.VESSEL_SELECTED, v.mmsi)
+    })
+    m.addTo(this.map)
+    this.markers.set(v.mmsi, m)
+  }
+
+  private createIconMarker(v: VesselState): void {
+    if (!this.map) return
+    const hex   = this.vesselColor(v)
+    const state = this.visStates.get(v.mmsi) ?? 'normal'
+    const m = L.marker([v.lat, v.lon] as L.LatLngExpression, {
+      icon:        makeVesselDivIcon(v.vesselCategory, hex, v.cog),
+      interactive: true,
+    })
+    m.bindPopup(() => this.popupHtml(v), { maxWidth: 240, className: 'ais-popup' })
+    m.on('click', (e: L.LeafletMouseEvent) => {
+      L.DomEvent.stopPropagation(e)
+      EventBus.emit(Events.VESSEL_SELECTED, v.mmsi)
+    })
+    m.addTo(this.map)
+    this.markers.set(v.mmsi, m)
+    setVesselMarkerState(m, state)
+  }
+
+  // ── Unified state setter ──────────────────────────────────────────────────────
+
+  private setMarkerState(mmsi: number, state: VisState): void {
+    this.visStates.set(mmsi, state)
+    const m = this.markers.get(mmsi)
+    if (!m) return
+    if (m instanceof L.CircleMarker) {
+      m.setStyle(CS[state])
     } else {
-      this.baseLayer = L.tileLayer(TILE_VOYAGER, {
-        attribution: '&copy; <a href="https://carto.com">CartoDB</a> contributors',
-        subdomains:  'abcd',
-        maxZoom:     14,
-        keepBuffer:  4,
-      }).addTo(this.map)
-      if (this.modeBtn) { this.modeBtn.textContent = 'SATELLITE'; this.modeBtn.classList.remove('active') }
+      setVesselMarkerState(m as L.Marker, state)
     }
   }
 
-  // ── Port markers ─────────────────────────────────────────────────────────────
-
-  private buildPortMarkers(): void {
-    if (!this.map) return
-    for (const port of PORTS_LIST) {
-      const hex = '#' + CONTINENT_COLORS[port.continent].toString(16).padStart(6, '0')
-      const m = L.circleMarker([port.lat, port.lon] as L.LatLngExpression, {
-        radius:      5,
-        color:       '#ffffff',
-        fillColor:   hex,
-        fillOpacity: 0.9,
-        weight:      1.5,
-        renderer:    this.renderer,
-      })
-      m.bindTooltip(
-        `<b>${port.name}</b><br><span style="color:${hex};font-size:9px;letter-spacing:1px">${port.code}</span>`,
-        { direction: 'right', className: 'port-tooltip', offset: [6, 0] },
-      )
-      m.addTo(this.map)
-    }
-  }
-
-  // ── Vessel selection ─────────────────────────────────────────────────────────
+  // ── Vessel selection ──────────────────────────────────────────────────────────
 
   private selectVessel(mmsi: number): void {
     if (this.selectedMmsi === mmsi) return
-
-    // Deselect previous without emitting event (internal only)
     if (this.selectedMmsi !== null) this.clearSelection()
 
     this.selectedMmsi = mmsi
 
-    // Highlight selected, dim others
-    for (const [m, marker] of this.markers) {
-      marker.setStyle(m === mmsi ? V_SELECTED : V_DIMMED)
+    for (const m of this.visStates.keys()) {
+      this.setMarkerState(m, m === mmsi ? 'selected' : 'dimmed')
     }
 
-    // Pan to selected
     const sel = this.markers.get(mmsi)
     if (sel) {
       sel.openPopup()
       this.map?.panTo(sel.getLatLng(), { animate: true, duration: 0.5 })
     }
 
-    // Draw route arc + history trail
     this.drawRoute(mmsi)
     this.drawHistoryTrail(mmsi)
   }
@@ -234,47 +271,35 @@ export class MapView {
     this.selectedMmsi = null
     this.clearRoute()
     this.clearHistoryTrail()
-    for (const marker of this.markers.values()) {
-      marker.setStyle(V_NORMAL)
-    }
+    for (const mmsi of this.visStates.keys()) this.setMarkerState(mmsi, 'normal')
   }
 
-  // ── Filter ───────────────────────────────────────────────────────────────────
+  // ── Filter ────────────────────────────────────────────────────────────────────
 
   applyFilter(filter: FilterState): void {
     this.activeFilter = filter
-    for (const [mmsi, marker] of this.markers) {
-      const state = this.states.get(mmsi)
-      if (!state) continue
-      const visible = this.passesFilter(state, filter)
-      if (visible) {
-        marker.setStyle(
-          this.selectedMmsi !== null && this.selectedMmsi !== mmsi ? V_DIMMED
-          : this.selectedMmsi === mmsi ? V_SELECTED
-          : V_NORMAL,
-        )
-      } else {
-        marker.setStyle({ fillOpacity: 0, opacity: 0, weight: 0 })
-      }
+    for (const [mmsi, state] of this.states) {
+      const vis = !this.passesFilter(state, filter) ? 'hidden'
+        : this.selectedMmsi === mmsi ? 'selected'
+        : this.selectedMmsi !== null ? 'dimmed'
+        : 'normal'
+      this.setMarkerState(mmsi, vis)
     }
   }
 
   private passesFilter(state: VesselState, f: FilterState): boolean {
     if (!f.categories.has(state.vesselCategory)) return false
-    // Only apply status filter for statuses we explicitly show checkboxes for.
-    // Vessels with unlisted statuses (e.g. NotDefined, UnderWaySailing) always pass.
     if (KNOWN_FILTER_STATUSES.has(state.navStatus) && !f.statuses.has(state.navStatus)) return false
-    if (f.maxSog < 31 && state.sog > f.maxSog)  return false
+    if (f.maxSog < 31 && state.sog > f.maxSog) return false
     return true
   }
 
-  // ── Search ───────────────────────────────────────────────────────────────────
+  // ── Search ────────────────────────────────────────────────────────────────────
 
   search(query: string): void {
     if (!query) {
-      // Clear search — restore all to normal (respects any active selection)
       if (this.selectedMmsi === null) {
-        for (const marker of this.markers.values()) marker.setStyle(V_NORMAL)
+        for (const mmsi of this.visStates.keys()) this.setMarkerState(mmsi, 'normal')
       }
       return
     }
@@ -282,23 +307,22 @@ export class MapView {
     const q = query.toLowerCase()
     const matches: number[] = []
 
-    for (const [mmsi, marker] of this.markers) {
-      const state = this.states.get(mmsi)
-      const nameMatch = state?.name.toLowerCase().includes(q)
-      const mmsiMatch = mmsi.toString().includes(q)
-      if (nameMatch || mmsiMatch) {
-        marker.setStyle(V_NORMAL)
+    for (const [mmsi] of this.markers) {
+      const state    = this.states.get(mmsi)
+      const nameHit  = state?.name.toLowerCase().includes(q)
+      const mmsiHit  = mmsi.toString().includes(q)
+      if (nameHit || mmsiHit) {
+        this.setMarkerState(mmsi, 'normal')
         matches.push(mmsi)
       } else {
-        marker.setStyle(V_DIMMED)
+        this.setMarkerState(mmsi, 'dimmed')
       }
     }
 
-    // Auto-select if exactly one match
     if (matches.length === 1) this.selectVessel(matches[0])
   }
 
-  // ── Route line ───────────────────────────────────────────────────────────────
+  // ── Route line ────────────────────────────────────────────────────────────────
 
   private drawRoute(mmsi: number): void {
     this.clearRoute()
@@ -306,20 +330,14 @@ export class MapView {
     if (!state) return
     const port = lookupPort(state.destination)
     if (!port) return
-
-    const waypoints = maritimeRoute(state.lat, state.lon, port.lat, port.lon)
     const col = '#' + destColor(state.destination).toString(16).padStart(6, '0')
-
     this.routeLine = L.polyline(
-      waypoints.map(w => [w.lat, w.lon] as L.LatLngExpression),
+      maritimeRoute(state.lat, state.lon, port.lat, port.lon).map(w => [w.lat, w.lon] as L.LatLngExpression),
       { color: col, weight: 2.5, opacity: 0.8, dashArray: '8 6', interactive: false, renderer: this.renderer },
     ).addTo(this.map!)
   }
 
-  private clearRoute(): void {
-    this.routeLine?.remove()
-    this.routeLine = null
-  }
+  private clearRoute(): void { this.routeLine?.remove(); this.routeLine = null }
 
   // ── History trail ─────────────────────────────────────────────────────────────
 
@@ -328,30 +346,24 @@ export class MapView {
     const state = this.states.get(mmsi)
     if (!state || state.history.length < 2) return
 
-    const pts = state.history.map(h => [h.lat, h.lon] as L.LatLngExpression)
-    const CHUNKS = 5
+    const pts       = state.history.map(h => [h.lat, h.lon] as L.LatLngExpression)
+    const CHUNKS    = 5
     const chunkSize = Math.max(1, Math.ceil(pts.length / CHUNKS))
     const opacities = [0.12, 0.25, 0.42, 0.62, 1.0]
 
     for (let i = 0; i < CHUNKS; i++) {
-      const start = i * chunkSize
-      const end   = Math.min(start + chunkSize + 1, pts.length) // +1 = overlap for continuity
-      const seg   = pts.slice(start, end)
+      const seg = pts.slice(i * chunkSize, Math.min((i + 1) * chunkSize + 1, pts.length))
       if (seg.length < 2) continue
-
       const line = L.polyline(seg, {
-        color:       '#00d4ff',
-        weight:      2,
-        opacity:     opacities[i],
-        interactive: false,
-        renderer:    this.renderer,
+        color: '#00d4ff', weight: 2, opacity: opacities[i],
+        interactive: false, renderer: this.renderer,
       }).addTo(this.map!)
       this.historyLines.push(line)
     }
   }
 
   private clearHistoryTrail(): void {
-    for (const line of this.historyLines) line.remove()
+    for (const l of this.historyLines) l.remove()
     this.historyLines = []
   }
 
@@ -361,36 +373,89 @@ export class MapView {
     if (!this.map) return
     this.states.set(vessel.mmsi, vessel)
 
-    const ll  = [vessel.lat, vessel.lon] as L.LatLngExpression
-    const hex = '#' + VesselMeshFactory.getColor(vessel.vesselCategory).toString(16).padStart(6, '0')
-    const isDimmed = this.selectedMmsi !== null && this.selectedMmsi !== vessel.mmsi
-    const isSelected = this.selectedMmsi === vessel.mmsi
-
-    let m = this.markers.get(vessel.mmsi)
-    if (!m) {
-      const style = isSelected ? V_SELECTED : isDimmed ? V_DIMMED : V_NORMAL
-      m = L.circleMarker(ll, {
-        ...style,
-        color:       hex,
-        fillColor:   hex,
-        renderer:    this.renderer,
-      })
-      m.bindPopup(() => this.popupHtml(vessel), { maxWidth: 240, className: 'ais-popup' })
-      m.on('click', (e: L.LeafletMouseEvent) => {
-        L.DomEvent.stopPropagation(e)
-        EventBus.emit(Events.VESSEL_SELECTED, vessel.mmsi)
-      })
-      m.addTo(this.map!)
-      this.markers.set(vessel.mmsi, m)
-    } else {
-      m.setLatLng(ll)
-      // Update color in case destination changed
-      m.setStyle({ color: hex, fillColor: hex })
+    // Ensure desired vis state exists
+    if (!this.visStates.has(vessel.mmsi)) {
+      const state = this.selectedMmsi !== null && this.selectedMmsi !== vessel.mmsi ? 'dimmed'
+        : this.selectedMmsi === vessel.mmsi ? 'selected'
+        : 'normal'
+      this.visStates.set(vessel.mmsi, state)
     }
 
-    // Apply active filter visibility
+    const hex = this.vesselColor(vessel)
+    const m   = this.markers.get(vessel.mmsi)
+
+    if (!m) {
+      // In icon mode: only create marker if vessel is in viewport
+      if (this.iconMode) {
+        const bounds = this.map.getBounds()
+        if (bounds.contains([vessel.lat, vessel.lon])) this.createIconMarker(vessel)
+      } else {
+        this.createCanvasMarker(vessel)
+      }
+    } else {
+      // Update existing marker in place
+      m.setLatLng([vessel.lat, vessel.lon])
+      if (m instanceof L.CircleMarker) {
+        m.setStyle({ color: hex, fillColor: hex })
+      } else {
+        updateVesselIconTransform(m as L.Marker, hex, vessel.cog)
+      }
+    }
+
+    // Re-apply filter if active
     if (this.activeFilter && !this.passesFilter(vessel, this.activeFilter)) {
-      m.setStyle({ fillOpacity: 0, opacity: 0, weight: 0 })
+      this.setMarkerState(vessel.mmsi, 'hidden')
+    }
+  }
+
+  // ── Port markers ──────────────────────────────────────────────────────────────
+
+  private buildPortMarkers(): void {
+    if (!this.map) return
+    for (const port of PORTS_LIST) {
+      const hex = '#' + CONTINENT_COLORS[port.continent].toString(16).padStart(6, '0')
+      const m = L.circleMarker([port.lat, port.lon] as L.LatLngExpression, {
+        radius: 5, color: '#ffffff', fillColor: hex,
+        fillOpacity: 0.9, weight: 1.5, renderer: this.renderer,
+      })
+      m.bindTooltip(
+        `<b>${port.name}</b><br><span style="color:${hex};font-size:9px;letter-spacing:1px">${port.code}</span>`,
+        { direction: 'right', className: 'port-tooltip', offset: [6, 0] },
+      )
+      m.addTo(this.map)
+    }
+  }
+
+  // ── Satellite toggle ──────────────────────────────────────────────────────────
+
+  private addModeButton(): void {
+    const btn = document.createElement('button')
+    btn.className   = 'map-mode-btn active'
+    btn.textContent = 'MAP VIEW'
+    btn.addEventListener('click', e => { e.stopPropagation(); this.toggleMode() })
+    this.container.appendChild(btn)
+    this.modeBtn = btn
+  }
+
+  private toggleMode(): void {
+    if (!this.map) return
+    this.satMode = !this.satMode
+    this.baseLayer?.remove(); this.lblLayer?.remove(); this.lblLayer = null
+
+    if (this.satMode) {
+      this.baseLayer = L.tileLayer(TILE_SAT_BASE, {
+        attribution: '&copy; <a href="https://www.esri.com">Esri</a>', maxZoom: 14, keepBuffer: 4,
+      }).addTo(this.map)
+      this.lblLayer = L.tileLayer(TILE_SAT_LBLS, {
+        attribution: '', subdomains: 'abcd', maxZoom: 14, keepBuffer: 4, opacity: 0.85,
+      }).addTo(this.map)
+      if (this.modeBtn) { this.modeBtn.textContent = 'MAP VIEW'; this.modeBtn.classList.add('active') }
+    } else {
+      this.baseLayer = L.tileLayer(TILE_VOYAGER, {
+        attribution: '&copy; <a href="https://carto.com">CartoDB</a> contributors',
+        subdomains: 'abcd', maxZoom: 14, keepBuffer: 4,
+      }).addTo(this.map)
+      if (this.modeBtn) { this.modeBtn.textContent = 'SATELLITE'; this.modeBtn.classList.remove('active') }
     }
   }
 

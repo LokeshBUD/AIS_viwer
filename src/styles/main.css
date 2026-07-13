@@ -546,6 +546,23 @@ body {
 .td-dest   { color: var(--c-muted); max-width: 120px; }
 .td-status { color: var(--c-muted); }
 .td-age    { color: var(--c-muted); text-align: right; }
+.td-alert  { white-space: nowrap; }
+
+.alert-badge {
+  font-size: 8px;
+  letter-spacing: 1px;
+  font-weight: bold;
+  padding: 2px 5px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.alert-badge-warning  { background: rgba(255,170,0,0.15);  color: var(--c-warn);   border: 1px solid var(--c-warn); }
+.alert-badge-critical { background: rgba(255,68,68,0.15);  color: var(--c-danger); border: 1px solid var(--c-danger); }
+
+.row-alert-warning  { background: rgba(255,170,0,0.04); }
+.row-alert-critical { background: rgba(255,68,68,0.06); }
+.row-alert-warning:hover  { background: rgba(255,170,0,0.10) !important; }
+.row-alert-critical:hover { background: rgba(255,68,68,0.12) !important; }
 
 /* ─────────────────────────────────────────
    Alert panel (bottom-right)
@@ -689,6 +706,18 @@ body {
 .ais-popup-grid span:nth-child(odd)  { color: var(--c-muted); font-size: 9px; letter-spacing: 1px; }
 .ais-popup-grid span:nth-child(even) { color: var(--c-text); }
 .ais-popup-coord  { color: var(--c-muted); font-size: 9px; }
+
+/* ─────────────────────────────────────────
+   Vessel SVG icons
+───────────────────────────────────────── */
+.vi {
+  transition: opacity 0.15s, transform 0.15s;
+  transform-origin: center center;
+}
+.vi-normal  { opacity: 0.85; transform: scale(1);   }
+.vi-selected{ opacity: 1.0;  transform: scale(1.8); filter: drop-shadow(0 0 4px #00d4ff); }
+.vi-dimmed  { opacity: 0.18; transform: scale(0.85);}
+.vi-hidden  { opacity: 0;    pointer-events: none;  }
 
 /* ─────────────────────────────────────────
    Utility

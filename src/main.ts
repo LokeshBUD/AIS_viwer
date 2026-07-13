@@ -8,14 +8,12 @@ import { AnomalyDetector } from './agent/AnomalyDetector'
 
 import { HUD } from './ui/HUD'
 import { VesselInfoPanel } from './ui/VesselInfoPanel'
-import { AlertPanel } from './ui/AlertPanel'
 import { MapView } from './ui/MapView'
 import { FilterPanel } from './ui/FilterPanel'
 import { VesselTable } from './ui/VesselTable'
 
 import { EventBus, Events } from './utils/EventBus'
 import type { WSStatus } from './ais/WebSocketClient'
-import type { AnomalyAlert } from './agent/AlertManager'
 
 // ─── Bootstrap ───────────────────────────────────────────────────────────────
 
@@ -25,7 +23,6 @@ new AnomalyDetector(alerts)
 
 const hud         = new HUD()
 new VesselInfoPanel(tracker)
-const alertPanel  = new AlertPanel()
 const mapView     = new MapView()
 const filterPanel = new FilterPanel()
 new VesselTable(tracker)
@@ -36,8 +33,11 @@ ws.connect()
 // ─── Wiring ──────────────────────────────────────────────────────────────────
 
 EventBus.on<WSStatus>(Events.WS_STATUS_CHANGED, s => hud.setWSStatus(s))
-EventBus.on<AnomalyAlert>(Events.ANOMALY_DETECTED, () => {
-  hud.setAlertCount(alertPanel.count)
+
+let alertCount = 0
+EventBus.on(Events.ANOMALY_DETECTED, () => {
+  alertCount++
+  hud.setAlertCount(alertCount)
 })
 
 // ─── Start map ───────────────────────────────────────────────────────────────

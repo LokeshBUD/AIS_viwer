@@ -17,13 +17,13 @@ export const LOD_LOW_DIST   = 5000
 export const VESSEL_HISTORY_LEN = 300
 
 /** Seconds of history to examine for anomalies */
-export const ANOMALY_WINDOW_SECS = 120
+export const ANOMALY_WINDOW_SECS = 180
 
-/** SOG fraction drop to trigger speed-drop anomaly (0.5 = 50%) */
-export const SPEED_DROP_THRESHOLD = 0.5
+/** SOG fraction drop to trigger speed-drop anomaly (0.35 = 35%) */
+export const SPEED_DROP_THRESHOLD = 0.35
 
-/** Degrees of COG change within window to trigger heading anomaly */
-export const HEADING_CHANGE_THRESHOLD = 45
+/** Degrees of total COG drift within window to trigger heading anomaly */
+export const HEADING_CHANGE_THRESHOLD = 35
 
 /** Vessels not seen within this ms are purged */
 export const STALE_VESSEL_MS = 10 * 60 * 1000

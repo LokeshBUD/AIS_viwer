@@ -1,3 +1,5 @@
+![1783841363298](image/data_dict/1783841363298.png)
+
 1. Stream Metadata
    Every packet coming through a digital stream typically contains structural metadata wrapper fields to help you parse the message:
 

@@ -20,7 +20,11 @@ export class AISRelay {
   private msgCount = 0
   private startTime = Date.now()
 
-  constructor(private apiKey: string) {}
+  constructor(private apiKey: string) {
+    setInterval(() => {
+      console.log(`[relay] live msg rate: ${this.messageRate}/s, total: ${this.msgCount}, vessels: ${this.vesselCount}, clients: ${this.clientCount}`)
+    }, 30_000)
+  }
 
   connect(): void {
     if (this.aisWs?.readyState === WebSocket.OPEN) return
