@@ -21,46 +21,59 @@ A real-time global vessel tracking dashboard powered by live AIS (Automatic Iden
 ## Architecture
 ```mermaid
 graph TD
-    %% Styling Definitions
-    classDef clientClass fill:#f9f9f9,stroke:#333,stroke-width:1px;
-    classDef serverClass fill:#f9f9f9,stroke:#333,stroke-width:1px;
-    classDef externalClass fill:#fff,stroke:#666,stroke-dasharray: 5 5;
-
-    %% Client Subgraph
-    subgraph Client ["Browser (Client) — Vite + TypeScript + Leaflet.js"]
-        WS_Client[WebSocketClient] --> VT[VesselTracker]
-        VT --> EB[EventBus]
+    %% Base Theme Overrides (Ensures high visibility on Dark & Light modes)
+    %% -----------------------------------------------------------------
+    classDef client fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1;
+    classDef server fill:#efebe9,stroke:#4e342e,stroke-width:2px,color:#3e2723;
+    classDef external fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#e65100;
+    classDef logic fill:#ffffff,stroke:#757575,stroke-width:1px,color:#212121;
+    
+    %% 1. EXTERNAL DATA SOURCE (Top)
+    %% -----------------------------------------------------------------
+    ExternalStream["🌐 aisstream.io <br> (External Stream)"]:::external
+    
+    %% 2. BACKEND LAYER (Middle)
+    %% -----------------------------------------------------------------
+    subgraph Server ["Node.js Server (Express + ws)"]
+        AIS["⚙️ AISRelay"]:::logic
+        Health["🏥 GET /health"]:::logic
         
-        WS_Client --> AD[AnomalyDetector]
-        VT --> MV[MapView hybrid canvas/icon]
+        %% Features listed cleanly inside a single readable card
+        Features["📦 AIS Functions:<br>• Caches latest position + static data per MMSI<br>• Sends SNAPSHOT to new clients on connect<br>• Forwards live messages to all clients"]:::logic
         
-        AD --> AM[AlertManager]
-        MV --> UI[VesselTable / FilterPanel / HUD]
+        AIS --- Features
     end
-    class Client clientClass;
+    class Server server;
 
-    %% Server Subgraph
-    subgraph Server ["Node.js Server — Express + ws"]
-        direction TB
+    %% 3. FRONTEND LAYER (Bottom)
+    %% -----------------------------------------------------------------
+    subgraph Client ["Browser Client (Vite + TS + Leaflet.js)"]
+        WS_Client["🔌 WebSocketClient"]:::logic
         
-        subgraph AIS ["AISRelay"]
-            direction TB
-            Cache[- Caches latest position + static data per MMSI]
-            Snapshot[- Sends SNAPSHOT to new clients on connect]
-            Forward[- Forwards all live messages to all clients]
-        end
+        %% Data Processing Pipelines
+        VT["🚢 VesselTracker"]:::logic
+        EB["🚌 EventBus"]:::logic
+        AD["⚠️ AnomalyDetector"]:::logic
+        AM["🚨 AlertManager"]:::logic
         
-        Health[Health endpoint: GET /health]
+        %% UI Components
+        MV["🗺️ MapView <br> (Hybrid Canvas/Icon)"]:::logic
+        UI["📊 UI Components <br> (Table / FilterPanel / HUD)"]:::logic
+
+        %% Frontend Internal Flows
+        WS_Client --> VT
+        WS_Client --> AD
+        VT --> EB
+        VT --> MV
+        AD --> AM
+        MV --> UI
     end
-    class Server serverClass;
+    class Client client;
 
-    %% External Stream
-    ExternalStream[aisstream.io]:::externalClass
-
-    %% Connections
-    WS_Client == "ws://localhost:3001/ws" ==> AIS
-    AIS == "wss://stream.aisstream.io" ==> ExternalStream
-```
+    %% INTER-LAYER NETWORKING (Clear data flow: Stream -> Server -> Client)
+    %% -----------------------------------------------------------------
+    ExternalStream == "wss://stream.aisstream.io" ==> AIS
+    AIS == "ws://localhost:3001/ws" ==> WS_Client
 ### Server (`server/`)
 
 
