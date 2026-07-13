@@ -19,7 +19,7 @@ A real-time global vessel tracking dashboard powered by live AIS (Automatic Iden
 ---
 
 ## Architecture
-```
+```mermaid
 graph TD
     %% Styling Definitions
     classDef clientClass fill:#f9f9f9,stroke:#333,stroke-width:1px;
