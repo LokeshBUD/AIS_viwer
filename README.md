@@ -96,21 +96,66 @@ The server is a thin relay — it does not process or interpret AIS messages. It
 The client is a single-page application bundled by Vite. It receives raw AIS JSON from the relay WebSocket and handles all parsing, state management, rendering, and intelligence locally in the browser.
 
 **Data pipeline:**
-```
-WebSocketClient (ws events)
-  → raw JSON string
-  → EventBus.emit(WS_MESSAGE)
-  → VesselTracker.handle()
-      → AISParser (extract position / static fields)
-      → updates VesselState in memory
-      → EventBus.emit(VESSEL_UPDATED, VesselState)
-  → AnomalyDetector.check(vessel) every 15s per vessel
-      → rules: SpeedDrop, HeadingChange, DraftMismatch
-      → AlertManager.add(alert)
-      → EventBus.emit(ANOMALY_DETECTED, alert)
-  → MapView.upsert(vessel)   [batched every 200ms]
-  → VesselTable.refresh()    [every 2s]
-  → HUD.setVesselCount()
+```mermaid
+sequenceDiagram
+    autonumber
+    
+    %% Participant Definitions with Clear Component Labels
+    participant WS as 🔌 WebSocketClient
+    participant EB as 🚌 EventBus
+    participant VT as 🚢 VesselTracker
+    participant AD as ⚠️ AnomalyDetector
+    participant AM as 🚨 AlertManager
+    participant MV as 🗺️ MapView
+    participant UI as 📊 UI Components (Table/HUD)
+
+    %% 1. Incoming Data Flow
+    Note over WS: Receives ws events
+    WS->>EB: emit(WS_MESSAGE, raw JSON string)
+    
+    %% 2. Processing Pipeline
+    critical Data Ingestion & State Update
+        EB->>VT: handle()
+        activate VT
+        Note over VT: Invokes AISParser<br/>(Extracts position & static fields)
+        rect rgb(240, 248, 255)
+            Note over VT: Updates VesselState in-memory
+        end
+        VT->>EB: emit(VESSEL_UPDATED, VesselState)
+        deactivate VT
+    end
+
+    %% 3. Asynchronous Processes & Downstream Consumers
+    par Async Pipeline Processing
+        %% Anomaly Detection
+        rect rgb(255, 245, 245)
+            loop Every 15s per Vessel
+                EB-->>AD: check(vessel)
+                activate AD
+                Note over AD: Evaluates rules:<br/>• SpeedDrop<br/>• HeadingChange<br/>• DraftMismatch
+                alt Anomaly Found
+                    AD->>AM: add(alert)
+                    AD->>EB: emit(ANOMALY_DETECTED, alert)
+                end
+                deactivate AD
+            end
+        end
+        
+    and UI Rendering Lifecycle
+        %% Map Updates
+        rect rgb(245, 255, 245)
+            loop Batched every 200ms
+                EB-->>MV: upsert(vessel)
+            end
+        end
+        
+        %% Table & HUD
+        loop Every 2s
+            EB-->>UI: refresh() VesselTable
+        end
+        
+        Note over UI: HUD.setVesselCount() invoked
+    end
 ```
 
 **Key directories:**
