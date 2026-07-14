@@ -11,9 +11,14 @@ export class WebSocketClient {
   private url: string
 
   constructor() {
-    // Connect to our relay server (Vite proxies /ws in dev, same host in prod)
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    this.url = `${proto}//${location.host}/ws`
+    // VITE_WS_URL overrides (e.g. point local dev at Render backend)
+    // Falls back to same-host /ws — works for Vite proxy in dev and Render prod
+    if (import.meta.env.VITE_WS_URL) {
+      this.url = import.meta.env.VITE_WS_URL as string
+    } else {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+      this.url = `${proto}//${location.host}/ws`
+    }
   }
 
   connect(): void {

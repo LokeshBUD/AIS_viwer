@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 
 export default defineConfig({
+  base: '/AIS_viwer/',
   build: {
     outDir: 'dist/client',
     target: 'esnext',
