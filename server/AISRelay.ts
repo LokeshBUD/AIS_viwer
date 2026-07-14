@@ -1,7 +1,8 @@
 import WebSocket from 'ws'
 
-const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 16000]
-const MAX_CACHE = 8000
+const MAX_CACHE        = 8000
+const MAX_BACKOFF_MS   = 60_000   // cap reconnect delay at 60s
+const BASE_BACKOFF_MS  = 2_000    // start at 2s (aisstream 429 = server is busy, don't hammer)
 
 interface CachedMessage {
   raw: string
@@ -126,9 +127,11 @@ export class AISRelay {
 
   private scheduleReconnect(): void {
     if (this.reconnectTimer) return
-    const delay = RECONNECT_DELAYS[Math.min(this.reconnectAttempt, RECONNECT_DELAYS.length - 1)]
+    // True exponential backoff: 2s, 4s, 8s, 16s, 32s, 60s (capped), with ±20% jitter
+    const base  = Math.min(BASE_BACKOFF_MS * Math.pow(2, this.reconnectAttempt), MAX_BACKOFF_MS)
+    const delay = Math.round(base * (0.8 + Math.random() * 0.4))
     this.reconnectAttempt++
-    console.log(`[relay] Reconnecting in ${delay}ms`)
+    console.log(`[relay] Reconnecting in ${(delay / 1000).toFixed(1)}s (attempt ${this.reconnectAttempt})`)
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null
       this.connect()
