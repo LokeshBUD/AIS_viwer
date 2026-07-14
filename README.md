@@ -3,6 +3,8 @@
 A real-time global vessel tracking dashboard powered by live AIS (Automatic Identification System) data. Ships broadcast their position, speed, heading, and identity via AIS transponders; this application receives those broadcasts and visualises them on an interactive map with anomaly detection, filtering, and vessel intelligence.
 
 ---
+Live Link: https://lokeshbud.github.io/AIS_viwer/
+---
 
 ## What It Does
 
@@ -333,16 +335,19 @@ Visual exploration of global shipping patterns — which routes are busiest, whi
 | **Vessel Clustering** | Frontend / Canvas | Replace dense overlapping canvas markers at low zoom levels with dynamic, count-labeled cluster rings to optimize client-side render loops and HUD clarity.                    |                          🟢 Complete                          |
 
 ### Medium term
-
-- **Historical playback** — store position snapshots in a time-series database (InfluxDB, TimescaleDB) and add a timeline scrubber to replay vessel movements over past hours or days.
-- **Port dwell time analysis** — detect when a vessel enters a port bounding box and track how long it stays. Long dwell times for tankers or cargo ships can indicate loading/unloading delays worth flagging.
-- **Vessel-to-vessel proximity alerts** — compute pairwise distances between vessels underway in the same region and alert when two vessels come within a configurable distance at speed (collision risk).
-- **Destination confidence scoring** — cross-reference a vessel's declared destination against its current heading and known maritime routes. Large divergence may indicate false destination declaration.
-- **Multi-feed aggregation** — aisstream.io is one feed; integrating a second source (e.g. a terrestrial AIS receiver or a satellite AIS provider) would fill gaps in ocean coverage and increase update frequency.
+| Feature / Objective | Layer | Technical Scope / Approach | Status |
+| :--- | :--- | :--- | :---: |
+| **Historical Playback** | Backend / Database | Store position snapshots in a time-series database (e.g., InfluxDB or TimescaleDB) and implement a timeline scrubber to replay vessel movements. | ⚪ Planned |
+| **Port Dwell Time Analysis** | Backend / State | Detect vessel entry into port bounding boxes and track duration; flag long dwell times for tankers or cargo ships indicating potential delays. | ⚪ Planned |
+| **Proximity Alerts** | Backend / Engine | Compute pairwise distances between vessels underway in the same region; alert on proximity thresholds at speed to flag collision risks. | ⚪ Planned |
+| **Destination Confidence** | Engine / Analytics | Cross-reference declared destinations against current heading and standard maritime routes; flag large divergences as potential false declarations. | ⚪ Planned |
+| **Multi-Feed Aggregation** | Backend / Ingestion | Integrate additional AIS feeds (terrestrial receivers or satellite providers) alongside aisstream.io to fill coverage gaps and increase frequency. | ⚪ Planned |
 
 ### Long term
 
-- **Machine learning anomaly detection** — replace threshold-based rules with a learned baseline per vessel or vessel category. A cargo ship that normally runs 12 kn will have a different "normal" than one that runs 8 kn; per-vessel baselines would dramatically reduce false positives.
-- **Cargo intelligence overlay** — fuse AIS data with public cargo manifests, port call records, and vessel ownership databases (e.g. Lloyd's, MarineTraffic API) to build richer vessel profiles and flag sanctions exposure or ownership anomalies.
-- **Backend persistence layer** — currently all vessel state is in-memory and lost on server restart. A Redis or Postgres backend would allow server restarts without losing track of vessels and would enable multi-instance horizontal scaling.
-- **Mobile-responsive layout** — the current HUD is designed for wide desktop screens. A responsive layout for tablets and phones would make the dashboard usable for on-the-water or bridge-side monitoring.
+| Feature / Objective | Layer | Technical Scope / Approach | Status |
+| :--- | :--- | :--- | :---: |
+| **ML Anomaly Detection** | Engine / AI | Replace threshold-based rules with learned, per-vessel or per-category baselines (e.g., speed variations) to minimize false positives. | ⚪ Planned |
+| **Cargo Intelligence Overlay**| Backend / Integration| Fuse AIS data with cargo manifests, port call records, and registry APIs (e.g., Lloyd's, MarineTraffic) to flag sanctions exposure or ownership anomalies. | ⚪ Planned |
+| **Backend Persistence Layer** | Infrastructure | Migrate in-memory state to a Redis or PostgreSQL database to enable stateless server restarts and support horizontal scaling. | ⚪ Planned |
+| **Mobile-Responsive Layout** | Frontend / UI | Redesign the desktop-heavy HUD into a responsive interface optimized for tablets and mobile devices used in on-the-water scenarios. | ⚪ Planned |
