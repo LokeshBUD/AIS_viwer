@@ -11,10 +11,11 @@ export class WebSocketClient {
   private url: string
 
   constructor() {
-    // VITE_WS_URL=auto resolves the current tunnel host via /api/backend-url at connect time
-    // (short.io redirects don't work for the ws upgrade handshake, so we resolve then connect direct)
-    // Otherwise VITE_WS_URL overrides directly (e.g. point local dev at Render backend)
-    // Falls back to same-host /ws — works for Vite proxy in dev and Render prod
+    // VITE_WS_URL=auto resolves the current tunnel host from a static backend-url.json
+    // published alongside this site (the tunnel rotates on restart; short.io redirects
+    // don't work for the ws upgrade handshake, so we resolve the real host then connect direct)
+    // Otherwise VITE_WS_URL overrides directly (e.g. point local dev at a fixed backend)
+    // Falls back to same-host /ws — works for Vite proxy in dev
     const envUrl = import.meta.env.VITE_WS_URL as string | undefined
     if (envUrl === 'auto') {
       this.url = ''
@@ -27,8 +28,8 @@ export class WebSocketClient {
   }
 
   private async resolveAutoUrl(): Promise<string> {
-    const res = await fetch('/api/backend-url')
-    if (!res.ok) throw new Error(`backend-url resolve failed: ${res.status}`)
+    const res = await fetch(`${import.meta.env.BASE_URL}backend-url.json`, { cache: 'no-store' })
+    if (!res.ok) throw new Error(`backend-url.json resolve failed: ${res.status}`)
     const { url } = (await res.json()) as { url: string }
     return url.replace(/^http/, 'ws') + '/ws'
   }
