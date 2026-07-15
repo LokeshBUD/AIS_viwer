@@ -27,6 +27,12 @@ export class VesselMesh {
   private _highlighted = false
   private _faded       = false
   private _currentDest = ''
+  private _lastArcTime = 0
+
+  // Real sea-route search is heavier than the old sparse-graph router, and
+  // applyState() fires on every AIS position tick for every vessel — throttle
+  // recompute so we're not re-running pathfinding for ~3000 vessels per tick.
+  private static readonly ARC_RECOMPUTE_MS = 30_000
 
   constructor(state: VesselState) {
     this.mmsi  = state.mmsi
@@ -74,7 +80,8 @@ export class VesselMesh {
     this.targetQuat.copy(baseQ).multiply(headingQ)
 
     // Update color when destination changes
-    if (state.destination !== this._currentDest) {
+    const destChanged = state.destination !== this._currentDest
+    if (destChanged) {
       this._currentDest = state.destination
       const col = destColor(state.destination)
       // Swap the sprite texture (factory caches textures by color hex)
@@ -85,7 +92,7 @@ export class VesselMesh {
     }
 
     this.updateTrail(state)
-    this.updateArc(state)
+    this.updateArc(state, destChanged)
   }
 
   /**
@@ -172,9 +179,14 @@ export class VesselMesh {
     this.trail.geometry.setFromPoints(pts)
   }
 
-  private updateArc(state: VesselState): void {
+  private updateArc(state: VesselState, destChanged: boolean): void {
     const port = lookupPort(state.destination)
     if (!port) { this.arc.hide(); return }
+
+    const now = Date.now()
+    if (!destChanged && this._lastArcTime !== 0 && now - this._lastArcTime < VesselMesh.ARC_RECOMPUTE_MS) return
+    this._lastArcTime = now
+
     const waypoints = maritimeRoute(state.lat, state.lon, port.lat, port.lon)
     this.arc.update(waypoints, destColor(state.destination))
   }

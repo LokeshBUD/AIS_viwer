@@ -351,3 +351,9 @@ Visual exploration of global shipping patterns — which routes are busiest, whi
 | **Cargo Intelligence Overlay**| Backend / Integration| Fuse AIS data with cargo manifests, port call records, and registry APIs (e.g., Lloyd's, MarineTraffic) to flag sanctions exposure or ownership anomalies. | ⚪ Planned |
 | **Backend Persistence Layer** | Infrastructure | Migrate in-memory state to a Redis or PostgreSQL database to enable stateless server restarts and support horizontal scaling. | ⚪ Planned |
 | **Mobile-Responsive Layout** | Frontend / UI | Redesign the desktop-heavy HUD into a responsive interface optimized for tablets and mobile devices used in on-the-water scenarios. | ⚪ Planned |
+
+## Data Sources & Attribution
+
+- **AIS feed**: [aisstream.io](https://aisstream.io)
+- **Maritime routing**: [`searoute-ts`](https://github.com/mayurrawte/searoute-ts) (Eurostat maritime network, EUPL-1.2)
+- **World port database** (`src/data/world-ports.json`, regenerated via `scripts/generate-world-ports.mjs`): built from [`cristan/improved-un-locodes`](https://github.com/cristan/improved-un-locodes), a cleaned rebuild of the official UN/LOCODE registry (UNECE, [PDDL](https://opendatacommons.org/licenses/pddl/1-0/)) with coordinate gaps filled in from [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors ([ODbL](https://opendatacommons.org/licenses/odbl/1-0/)).

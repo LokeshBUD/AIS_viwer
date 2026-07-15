@@ -9,7 +9,6 @@ import { PORTS_LIST, CONTINENT_COLORS, lookupPort } from '../utils/ports'
 import { maritimeRoute } from '../utils/maritimeRoute'
 import { destColor } from '../utils/destColor'
 import { makeVesselDivIcon, updateVesselIconTransform, setVesselMarkerState } from './VesselIcon'
-import { GEOZONES } from '../utils/geozones'
 
 const TILE_VOYAGER  = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
 const TILE_SAT_BASE = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
@@ -104,7 +103,6 @@ export class MapView {
     })
 
     this.buildPortMarkers()
-    this.buildZoneOverlays()
 
     // Populate state; markers created only for non-cluster modes
     for (const v of allVessels.values()) this.upsert(v)
@@ -153,9 +151,18 @@ export class MapView {
 
   private switchToClusterMode(): void {
     this.mode = 'cluster'
-    // Remove any individual icon markers left from icon mode
-    for (const m of this.markers.values()) m.remove()
-    this.markers.clear()
+    // Remove individual icon markers left from icon mode, except the
+    // selected vessel — it stays visible as its own marker while everything
+    // else clusters into bubbles.
+    for (const [mmsi, m] of this.markers) {
+      if (mmsi !== this.selectedMmsi) m.remove()
+    }
+    if (this.selectedMmsi === null) this.markers.clear()
+    else {
+      const sel = this.markers.get(this.selectedMmsi)
+      this.markers.clear()
+      if (sel) this.markers.set(this.selectedMmsi, sel)
+    }
     this.buildClusters()
   }
 
@@ -165,11 +172,20 @@ export class MapView {
     this.clearClusters()
     const bounds = this.map.getBounds()
     for (const v of this.states.values()) {
-      if (bounds.contains([v.lat, v.lon])) this.createIconMarker(v)
+      // Selected vessel may already have a marker from cluster mode — don't duplicate it.
+      if (!this.markers.has(v.mmsi) && bounds.contains([v.lat, v.lon])) this.createIconMarker(v)
     }
   }
 
   // ── Cluster mode ──────────────────────────────────────────────────────────────
+
+  /** Selected vessel keeps its own marker even while clustered — create it if missing. */
+  private ensureSelectedMarker(): void {
+    if (this.selectedMmsi === null || this.mode !== 'cluster') return
+    if (this.markers.has(this.selectedMmsi)) return
+    const state = this.states.get(this.selectedMmsi)
+    if (state) this.createIconMarker(state)
+  }
 
   private buildClusters(): void {
     if (!this.map) return
@@ -184,6 +200,9 @@ export class MapView {
     const cells = new Map<string, Cell>()
 
     for (const v of this.states.values()) {
+      // Selected vessel gets its own marker (see ensureSelectedMarker) — don't
+      // also fold it into a cluster bubble.
+      if (v.mmsi === this.selectedMmsi) continue
       const row = Math.floor(v.lat / cellDeg)
       const col = Math.floor(v.lon / cellDeg)
       const centerLat = (row + 0.5) * cellDeg
@@ -229,6 +248,8 @@ export class MapView {
       m.addTo(this.map!)
       this.clusterMarkers.push(m)
     }
+
+    this.ensureSelectedMarker()
   }
 
   private clearClusters(): void {
@@ -322,10 +343,19 @@ export class MapView {
   }
 
   private clearSelection(): void {
+    const prevMmsi = this.selectedMmsi
     this.selectedMmsi = null
     this.clearRoute()
     this.clearHistoryTrail()
     for (const mmsi of this.visStates.keys()) this.setMarkerState(mmsi, 'normal')
+
+    // In cluster mode the selected vessel had its own marker exempted from
+    // clustering — drop it and fold the vessel back into a cluster bubble.
+    if (this.mode === 'cluster' && prevMmsi !== null) {
+      const m = this.markers.get(prevMmsi)
+      if (m) { m.remove(); this.markers.delete(prevMmsi) }
+      this.buildClusters()
+    }
   }
 
   // ── Filter ────────────────────────────────────────────────────────────────────
@@ -400,7 +430,14 @@ export class MapView {
     const state = this.states.get(mmsi)
     if (!state || state.history.length < 2) return
 
-    const pts       = state.history.map(h => [h.lat, h.lon] as L.LatLngExpression)
+    const pts: [number, number][] = state.history.map(h => [h.lat, h.lon])
+    // Always close the gap to the vessel's live position — a history snapshot
+    // can lag behind the marker by one AIS report if the vessel is mid-move
+    // when the trail redraws.
+    const lastPt = pts[pts.length - 1]
+    if (!lastPt || lastPt[0] !== state.lat || lastPt[1] !== state.lon) {
+      pts.push([state.lat, state.lon])
+    }
     const CHUNKS    = 5
     const chunkSize = Math.max(1, Math.ceil(pts.length / CHUNKS))
     const opacities = [0.12, 0.25, 0.42, 0.62, 1.0]
@@ -435,16 +472,20 @@ export class MapView {
       this.visStates.set(vessel.mmsi, state)
     }
 
-    // In cluster mode individual markers are not used — clusters rebuild on zoom/pan
-    if (this.mode === 'cluster') return
+    // In cluster mode individual markers aren't used (clusters rebuild on zoom/pan)
+    // except for the selected vessel, which keeps its own live-updating marker.
+    if (this.mode === 'cluster' && vessel.mmsi !== this.selectedMmsi) return
 
     const hex = this.vesselColor(vessel)
     const m   = this.markers.get(vessel.mmsi)
 
     if (!m) {
-      // Icon mode: only create marker if vessel is in viewport
+      // Icon mode: only create marker if vessel is in viewport.
+      // Cluster mode: always create it — it's the exempted selected vessel.
       const bounds = this.map.getBounds()
-      if (bounds.contains([vessel.lat, vessel.lon])) this.createIconMarker(vessel)
+      if (this.mode === 'cluster' || bounds.contains([vessel.lat, vessel.lon])) {
+        this.createIconMarker(vessel)
+      }
     } else {
       m.setLatLng([vessel.lat, vessel.lon])
       updateVesselIconTransform(m, hex, vessel.cog)
@@ -471,33 +512,6 @@ export class MapView {
         { direction: 'right', className: 'port-tooltip', offset: [6, 0] },
       )
       m.addTo(this.map)
-    }
-  }
-
-  // ── Geofence zone overlays ────────────────────────────────────────────────────
-
-  private buildZoneOverlays(): void {
-    if (!this.map) return
-    for (const zone of GEOZONES) {
-      const color = zone.severity === 'warning' ? '#ffaa00' : '#00d4ff'
-      L.rectangle(
-        [[zone.south, zone.west], [zone.north, zone.east]] as L.LatLngBoundsExpression,
-        {
-          color,
-          weight:      1.5,
-          opacity:     0.85,
-          fillColor:   color,
-          fillOpacity: zone.severity === 'warning' ? 0.18 : 0.10,
-          dashArray:   '6 4',
-          interactive: true,
-          renderer:    this.renderer,
-        },
-      )
-        .bindTooltip(
-          `<span style="color:${color};letter-spacing:1px;font-size:10px">${zone.name}${zone.risk ? `<br><span style="color:var(--c-warn);font-size:9px">${zone.risk}</span>` : ''}</span>`,
-          { sticky: true, className: 'port-tooltip' },
-        )
-        .addTo(this.map)
     }
   }
 
