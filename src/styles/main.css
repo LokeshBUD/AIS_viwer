@@ -232,11 +232,11 @@ body {
 }
 
 /* ─────────────────────────────────────────
-   Filter panel (left, below stats)
+   Filter panel (right of system status)
 ───────────────────────────────────────── */
 .hud-filter {
-  top: 290px;
-  left: 16px;
+  top: 16px;
+  left: 258px;
   min-width: 200px;
 }
 
@@ -332,6 +332,50 @@ body {
   transition: all 0.15s;
 }
 .filter-clear:hover { border-color: var(--c-accent); color: var(--c-accent); }
+
+/* ─────────────────────────────────────────
+   Guide/legend panel (ship types + anomalies)
+───────────────────────────────────────── */
+.hud-guide {
+  top: 374px;
+  left: 16px;
+  min-width: 220px;
+  max-width: 240px;
+}
+
+.guide-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.guide-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.guide-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  flex-shrink: 0;
+}
+
+.guide-lbl {
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  color: var(--c-text);
+  min-width: 52px;
+  flex-shrink: 0;
+}
+
+.guide-note {
+  font-size: 9px;
+  color: var(--c-muted);
+  line-height: 1.3;
+}
 
 /* ─────────────────────────────────────────
    Vessel Info panel (right)

@@ -9,15 +9,6 @@ export class HUD {
   private coordEl!:       HTMLElement
   private onSearchCb?: (query: string) => void
 
-  // alert type counts
-  private alertTypeCounts: Record<string, number> = {
-    SPEED_DROP:     0,
-    SHARP_HEADING:  0,
-    DRAFT_MISMATCH: 0,
-    AIS_GAP:        0,
-    GEOFENCE_ENTRY: 0,
-    GEOFENCE_EXIT:  0,
-  }
   private alertTypeEls: Record<string, HTMLElement> = {}
 
   constructor() {
@@ -152,14 +143,11 @@ export class HUD {
 
   onSearch(cb: (query: string) => void): void { this.onSearchCb = cb }
 
-  bumpAlertType(type: string): void {
-    if (!(type in this.alertTypeCounts)) return
-    this.alertTypeCounts[type]++
+  setAlertTypeCount(type: string, n: number): void {
     const el = this.alertTypeEls[type]
     if (!el) return
-    const n = this.alertTypeCounts[type]
     el.textContent = n.toString()
-    // color escalates as count grows
+    // color escalates with magnitude
     el.style.color = n >= 10 ? 'var(--c-danger)' : n >= 3 ? 'var(--c-warn)' : 'var(--c-text)'
   }
 

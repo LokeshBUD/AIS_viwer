@@ -22,6 +22,14 @@ const SHAPES: Record<VesselCategory, string> = {
   unknown:   'M7,0 L12,21 L7,16 L2,21 Z',
 }
 
+/** Upright, unrotated icon markup for legends/keys — same shapes as the map markers. */
+export function vesselIconSvg(category: VesselCategory, color: string): string {
+  const path = SHAPES[category] ?? SHAPES.unknown
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
+    <path d="${path}" fill="${color}" stroke="#000" stroke-width="0.6" stroke-linejoin="round"/>
+  </svg>`
+}
+
 export function makeVesselDivIcon(
   category: VesselCategory,
   color: string,

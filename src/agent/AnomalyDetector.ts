@@ -1,6 +1,6 @@
 import { EventBus, Events } from '../utils/EventBus'
 import type { VesselState } from '../ais/types'
-import { AlertManager } from './AlertManager'
+import { AlertManager, type AlertType } from './AlertManager'
 import { checkSpeedDrop } from './rules/SpeedDropRule'
 import { checkHeadingChange } from './rules/HeadingChangeRule'
 import { checkDraftMismatch } from './rules/DraftMismatchRule'
@@ -8,8 +8,14 @@ import { checkAisGap } from './rules/AisGapRule'
 
 type RuleFn = (v: VesselState) => ReturnType<typeof checkSpeedDrop>
 
-// Rules run on every VESSEL_UPDATED (throttled to 15s per vessel)
-const LIVE_RULES: RuleFn[] = [checkSpeedDrop, checkHeadingChange, checkDraftMismatch]
+// Rules run on every VESSEL_UPDATED (throttled to 15s per vessel). Paired
+// with their AlertType so we can report live true/false state, not just
+// deduped alert events, into AlertManager.setActive().
+const LIVE_RULES: [AlertType, RuleFn][] = [
+  ['SPEED_DROP',     checkSpeedDrop],
+  ['SHARP_HEADING',  checkHeadingChange],
+  ['DRAFT_MISMATCH', checkDraftMismatch],
+]
 
 // Minimum ms between live-rule evaluations per vessel
 const CHECK_INTERVAL_MS = 15_000
@@ -44,8 +50,9 @@ export class AnomalyDetector {
     this.lastChecked.set(vessel.mmsi, now)
     this.totalChecks++
 
-    for (const rule of LIVE_RULES) {
+    for (const [type, rule] of LIVE_RULES) {
       const alert = rule(vessel)
+      this.alertManager.setActive(vessel.mmsi, type, !!alert)
       if (alert) this.alertManager.add(alert)
     }
   }
@@ -59,6 +66,7 @@ export class AnomalyDetector {
       this.lastGapChecked.set(vessel.mmsi, now)
 
       const alert = checkAisGap(vessel)
+      this.alertManager.setActive(vessel.mmsi, 'AIS_GAP', !!alert)
       if (alert) this.alertManager.add(alert)
     }
   }

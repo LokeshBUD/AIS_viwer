@@ -59,5 +59,7 @@ export class GeofenceMonitor {
     }
 
     this.vesselZones.set(vessel.mmsi, current)
+    // ZONE ↓ live count = boats currently inside any geofence.
+    this.alertManager.setActive(vessel.mmsi, 'GEOFENCE_ENTRY', current.size > 0)
   }
 }

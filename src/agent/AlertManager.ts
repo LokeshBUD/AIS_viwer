@@ -22,6 +22,18 @@ export class AlertManager {
   private alerts: AnomalyAlert[] = []
   private dedupKeys = new Set<string>()
 
+  // Live "is this vessel currently exhibiting this anomaly type" state —
+  // separate from the deduped alert feed above. Rules call setActive() on
+  // every re-check (true/false), so a vessel drops out the moment the
+  // underlying condition clears, unlike the feed which only ever appends.
+  private activeByType = new Map<AlertType, Set<number>>()
+
+  constructor() {
+    EventBus.on<number>(Events.VESSEL_LOST, mmsi => {
+      for (const set of this.activeByType.values()) set.delete(mmsi)
+    })
+  }
+
   add(alert: AnomalyAlert): void {
     const key = `${alert.mmsi}:${alert.type}:${Math.floor(alert.timestamp / DEDUP_WINDOW_MS)}`
     if (this.dedupKeys.has(key)) return
@@ -38,4 +50,24 @@ export class AlertManager {
   }
 
   getAll(): readonly AnomalyAlert[] { return this.alerts }
+
+  setActive(mmsi: number, type: AlertType, active: boolean): void {
+    let set = this.activeByType.get(type)
+    if (!set) { set = new Set<number>(); this.activeByType.set(type, set) }
+    if (active) set.add(mmsi)
+    else set.delete(mmsi)
+  }
+
+  getActiveCount(type: AlertType): number {
+    return this.activeByType.get(type)?.size ?? 0
+  }
+
+  /** Distinct vessels with at least one currently-active anomaly type. */
+  getActiveVesselCount(): number {
+    const union = new Set<number>()
+    for (const set of this.activeByType.values()) {
+      for (const mmsi of set) union.add(mmsi)
+    }
+    return union.size
+  }
 }
