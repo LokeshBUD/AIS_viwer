@@ -9,7 +9,7 @@
     "build": "vite build && tsc -p tsconfig.server.json",
     "start": "node dist/server/index.js",
     "preview": "vite preview",
-    "predeploy": "npm run build",
+    "predeploy": "node scripts/sync-backend-url.mjs && npm run build",
     "deploy": "gh-pages -d dist/client"
   },
   "dependencies": {
