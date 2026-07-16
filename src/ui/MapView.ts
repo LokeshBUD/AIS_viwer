@@ -9,6 +9,7 @@ import { PORTS_LIST, CONTINENT_COLORS, lookupPort } from '../utils/ports'
 import { maritimeRoute } from '../utils/maritimeRoute'
 import { destColor } from '../utils/destColor'
 import { makeVesselDivIcon, updateVesselIconTransform, setVesselMarkerState } from './VesselIcon'
+import { wrappedLon, unwrapLons } from '../utils/mapWrap'
 
 const TILE_VOYAGER  = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
 const TILE_SAT_BASE = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
@@ -62,7 +63,11 @@ export class MapView {
   }
 
   start(allVessels: ReadonlyMap<number, VesselState>, onCoords?: (lat: number, lon: number) => void): void {
-    this.renderer = L.canvas({ padding: 0.5 })
+    // Canvas only recomputes its own internal paint bounds on 'moveend' (not
+    // during an active drag), so ports/routes/trails — all canvas-rendered —
+    // need generous padding to already cover a wrapped ±360° world-copy;
+    // otherwise they simply can't paint there until the drag ends.
+    this.renderer = L.canvas({ padding: 2 })
 
     const initialZoom = Math.max(MIN_ZOOM, 3)
     this.mode = initialZoom >= ICON_ZOOM ? 'icon' : 'cluster'
@@ -97,9 +102,25 @@ export class MapView {
     }
     this.map.on('click', () => { if (this.selectedMmsi !== null) this.deselect() })
     this.map.on('zoomend', () => this.onZoomChange())
-    this.map.on('moveend', () => {
-      if (this.mode === 'icon')    this.refreshIconViewport()
-      if (this.mode === 'cluster') this.buildClusters()
+    const refreshViewport = () => {
+      // Cluster bubbles are pre-duplicated across world-copies (see
+      // buildClusters) and don't depend on the viewport, so panning never
+      // needs to rebuild them — only zoom (cell size changes) does.
+      if (this.mode === 'icon') this.refreshIconViewport()
+      if (this.selectedMmsi !== null) {
+        this.drawRoute(this.selectedMmsi)
+        this.drawHistoryTrail(this.selectedMmsi)
+      }
+    }
+    this.map.on('moveend', refreshViewport)
+    // Also refresh continuously (rAF-throttled) while dragging — otherwise
+    // markers/clusters only appear once the drag ends, which looks like a
+    // flash of empty space when panning reveals a wrapped world-copy.
+    let refreshQueued = false
+    this.map.on('move', () => {
+      if (refreshQueued) return
+      refreshQueued = true
+      requestAnimationFrame(() => { refreshQueued = false; refreshViewport() })
     })
 
     this.buildPortMarkers()
@@ -173,7 +194,9 @@ export class MapView {
     const bounds = this.map.getBounds()
     for (const v of this.states.values()) {
       // Selected vessel may already have a marker from cluster mode — don't duplicate it.
-      if (!this.markers.has(v.mmsi) && bounds.contains([v.lat, v.lon])) this.createIconMarker(v)
+      if (this.markers.has(v.mmsi)) continue
+      const lon = wrappedLon(v.lon, bounds)
+      if (lon !== null) this.createIconMarker(v, lon)
     }
   }
 
@@ -193,12 +216,13 @@ export class MapView {
 
     const zoom    = this.map.getZoom()
     const cellDeg = clusterCellDeg(zoom)
-    // Pad bounds so cells near edge still appear
-    const bounds  = this.map.getBounds().pad(0.15)
 
     interface Cell { count: number; lat: number; lon: number; colorCounts: Map<string, number> }
     const cells = new Map<string, Cell>()
 
+    // Bin every vessel by its canonical position — no viewport/bounds check
+    // at all. Bubbles are rendered at all world-copies below regardless of
+    // pan, same as ports, so this never needs to react to panning.
     for (const v of this.states.values()) {
       // Selected vessel gets its own marker (see ensureSelectedMarker) — don't
       // also fold it into a cluster bubble.
@@ -207,8 +231,6 @@ export class MapView {
       const col = Math.floor(v.lon / cellDeg)
       const centerLat = (row + 0.5) * cellDeg
       const centerLon = (col + 0.5) * cellDeg
-      // Skip cells whose center is outside the padded viewport
-      if (!bounds.contains([centerLat, centerLon] as L.LatLngExpression)) continue
 
       const key = `${row}:${col}`
       if (!cells.has(key)) {
@@ -240,13 +262,18 @@ export class MapView {
         iconAnchor: [size / 2, size / 2],
       })
 
-      const m = L.marker([cell.lat, cell.lon] as L.LatLngExpression, { icon, interactive: true })
-      m.on('click', (e: L.LeafletMouseEvent) => {
-        L.DomEvent.stopPropagation(e)
-        this.map?.flyTo([cell.lat, cell.lon], targetZoom, { duration: 0.5 })
-      })
-      m.addTo(this.map!)
-      this.clusterMarkers.push(m)
+      // Pre-duplicate at ±360° so bubbles already exist in wrapped world-copies
+      // before a drag reveals them — panning just slides them into view via
+      // Leaflet's pane transform instead of creating/destroying them reactively.
+      for (const lon of [cell.lon - 360, cell.lon, cell.lon + 360]) {
+        const m = L.marker([cell.lat, lon] as L.LatLngExpression, { icon, interactive: true })
+        m.on('click', (e: L.LeafletMouseEvent) => {
+          L.DomEvent.stopPropagation(e)
+          this.map?.flyTo([cell.lat, lon], targetZoom, { duration: 0.5 })
+        })
+        m.addTo(this.map!)
+        this.clusterMarkers.push(m)
+      }
     }
 
     this.ensureSelectedMarker()
@@ -261,18 +288,24 @@ export class MapView {
 
   private refreshIconViewport(): void {
     if (!this.map) return
-    const bounds = this.map.getBounds()
+    // Pad so markers just outside the visible area already exist before a
+    // drag reveals them — avoids a pop-in flash while panning.
+    const bounds = this.map.getBounds().pad(0.5)
     for (const [mmsi, m] of this.markers) {
       const v = this.states.get(mmsi)
-      if (!v || !bounds.contains([v.lat, v.lon])) {
+      const lon = v ? wrappedLon(v.lon, bounds) : null
+      if (!v || lon === null) {
         m.remove()
         this.markers.delete(mmsi)
+      } else {
+        // Reposition into the currently-visible world-copy if the seam was crossed further.
+        m.setLatLng([v.lat, lon])
       }
     }
     for (const v of this.states.values()) {
-      if (!this.markers.has(v.mmsi) && bounds.contains([v.lat, v.lon])) {
-        this.createIconMarker(v)
-      }
+      if (this.markers.has(v.mmsi)) continue
+      const lon = wrappedLon(v.lon, bounds)
+      if (lon !== null) this.createIconMarker(v, lon)
     }
   }
 
@@ -282,11 +315,11 @@ export class MapView {
     return '#' + VesselMeshFactory.getColor(v.vesselCategory).toString(16).padStart(6, '0')
   }
 
-  private createIconMarker(v: VesselState): void {
+  private createIconMarker(v: VesselState, lon: number = v.lon): void {
     if (!this.map) return
     const hex   = this.vesselColor(v)
     const state = this.visStates.get(v.mmsi) ?? 'normal'
-    const m = L.marker([v.lat, v.lon] as L.LatLngExpression, {
+    const m = L.marker([v.lat, lon] as L.LatLngExpression, {
       icon:        makeVesselDivIcon(v.vesselCategory, hex, v.cog),
       interactive: true,
     })
@@ -415,8 +448,16 @@ export class MapView {
     const port = lookupPort(state.destination)
     if (!port) return
     const col = '#' + destColor(state.destination).toString(16).padStart(6, '0')
+    const waypoints = maritimeRoute(state.lat, state.lon, port.lat, port.lon)
+    // Unwrap the route itself first (a route crossing the antimeridian must not
+    // cut across the whole globe), then anchor point 0 (the vessel's own
+    // position) to wherever its marker is currently rendered, so the line
+    // starts exactly at the marker regardless of which world-copy is in view.
+    const unwrapped = unwrapLons(waypoints.map(w => w.lon))
+    const anchor = wrappedLon(state.lon, this.map!.getBounds()) ?? state.lon
+    const shift = anchor - unwrapped[0]
     this.routeLine = L.polyline(
-      maritimeRoute(state.lat, state.lon, port.lat, port.lon).map(w => [w.lat, w.lon] as L.LatLngExpression),
+      waypoints.map((w, i) => [w.lat, unwrapped[i] + shift] as L.LatLngExpression),
       { color: col, weight: 2.5, opacity: 0.8, dashArray: '8 6', interactive: false, renderer: this.renderer },
     ).addTo(this.map!)
   }
@@ -430,14 +471,21 @@ export class MapView {
     const state = this.states.get(mmsi)
     if (!state || state.history.length < 2) return
 
-    const pts: [number, number][] = state.history.map(h => [h.lat, h.lon])
     // Always close the gap to the vessel's live position — a history snapshot
     // can lag behind the marker by one AIS report if the vessel is mid-move
     // when the trail redraws.
-    const lastPt = pts[pts.length - 1]
-    if (!lastPt || lastPt[0] !== state.lat || lastPt[1] !== state.lon) {
-      pts.push([state.lat, state.lon])
-    }
+    const lastHist = state.history[state.history.length - 1]
+    const needsLivePoint = !lastHist || lastHist.lat !== state.lat || lastHist.lon !== state.lon
+    const lats    = state.history.map(h => h.lat).concat(needsLivePoint ? [state.lat] : [])
+    const rawLons = state.history.map(h => h.lon).concat(needsLivePoint ? [state.lon] : [])
+    // Unwrap the trail itself first (a real track crossing the antimeridian must
+    // not cut across the whole globe), then anchor the last point (the vessel's
+    // live position) to wherever its marker is currently rendered, so the trail
+    // ends exactly at the marker regardless of which world-copy is in view.
+    const unwrapped = unwrapLons(rawLons)
+    const anchor = wrappedLon(state.lon, this.map!.getBounds()) ?? state.lon
+    const shift = anchor - unwrapped[unwrapped.length - 1]
+    const pts: [number, number][] = lats.map((lat, i) => [lat, unwrapped[i] + shift])
     const CHUNKS    = 5
     const chunkSize = Math.max(1, Math.ceil(pts.length / CHUNKS))
     const opacities = [0.12, 0.25, 0.42, 0.62, 1.0]
@@ -483,8 +531,9 @@ export class MapView {
       // Icon mode: only create marker if vessel is in viewport.
       // Cluster mode: always create it — it's the exempted selected vessel.
       const bounds = this.map.getBounds()
-      if (this.mode === 'cluster' || bounds.contains([vessel.lat, vessel.lon])) {
-        this.createIconMarker(vessel)
+      const lon = wrappedLon(vessel.lon, bounds)
+      if (this.mode === 'cluster' || lon !== null) {
+        this.createIconMarker(vessel, lon ?? vessel.lon)
       }
     } else {
       m.setLatLng([vessel.lat, vessel.lon])
@@ -503,15 +552,29 @@ export class MapView {
     if (!this.map) return
     for (const port of PORTS_LIST) {
       const hex = '#' + CONTINENT_COLORS[port.continent].toString(16).padStart(6, '0')
-      const m = L.circleMarker([port.lat, port.lon] as L.LatLngExpression, {
-        radius: 5, color: '#ffffff', fillColor: hex,
-        fillOpacity: 0.9, weight: 1.5, renderer: this.renderer,
+      // DOM marker, not a canvas/SVG Path — Leaflet's Path renderers only
+      // repaint their own tracked bounds on 'moveend' (checked leaflet-src.js),
+      // and that tracked area shrinks in degrees as you zoom in, so a canvas
+      // circleMarker duplicated at ±360° would stop painting there once
+      // zoomed past a certain level. A plain L.marker has no such bounds —
+      // it's always rendered, panning is free via the pane's CSS transform,
+      // same mechanism already used for cluster bubbles.
+      const icon = L.divIcon({
+        html:       `<div class="port-dot" style="background:${hex}"></div>`,
+        className:  '',
+        iconSize:   [10, 10],
+        iconAnchor: [5, 5],
       })
-      m.bindTooltip(
-        `<b>${port.name}</b><br><span style="color:${hex};font-size:9px;letter-spacing:1px">${port.code}</span>`,
-        { direction: 'right', className: 'port-tooltip', offset: [6, 0] },
-      )
-      m.addTo(this.map)
+      // Pre-duplicate at ±360° so ports render in wrapped world-copies too —
+      // ports are static/few, cheaper than recomputing on every moveend.
+      for (const lon of [port.lon - 360, port.lon, port.lon + 360]) {
+        const m = L.marker([port.lat, lon] as L.LatLngExpression, { icon, interactive: true })
+        m.bindTooltip(
+          `<b>${port.name}</b><br><span style="color:${hex};font-size:9px;letter-spacing:1px">${port.code}</span>`,
+          { direction: 'right', className: 'port-tooltip', offset: [6, 0] },
+        )
+        m.addTo(this.map)
+      }
     }
   }
 

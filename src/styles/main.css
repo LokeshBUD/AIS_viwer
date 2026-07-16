@@ -726,6 +726,14 @@ body {
 }
 .port-tooltip::before { display: none !important; }
 
+.port-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid #ffffff;
+  opacity: 0.9;
+}
+
 /* ─────────────────────────────────────────
    Leaflet Map Container
 ───────────────────────────────────────── */
