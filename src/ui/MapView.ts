@@ -10,6 +10,7 @@ import { maritimeRoute } from '../utils/maritimeRoute'
 import { destColor } from '../utils/destColor'
 import { makeVesselDivIcon, updateVesselIconTransform, setVesselMarkerState } from './VesselIcon'
 import { wrappedLon, unwrapLons } from '../utils/mapWrap'
+import { VesselCanvasLayer } from './VesselCanvasLayer'
 
 const TILE_VOYAGER  = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
 const TILE_SAT_BASE = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
@@ -58,6 +59,8 @@ export class MapView {
   private satMode       = true
   private modeBtn:      HTMLButtonElement | null = null
   private activeFilter: FilterState | null = null
+  // Bulk canvas renderer for non-selected icon-mode vessels — see VesselCanvasLayer.
+  private canvasLayer:  VesselCanvasLayer | null = null
 
   constructor() {
     this.container = document.createElement('div')
@@ -100,30 +103,43 @@ export class MapView {
     L.control.zoom({ position: 'bottomright' }).addTo(this.map)
     this.addModeButton()
 
+    this.canvasLayer = new VesselCanvasLayer(
+      this.map,
+      mmsi => EventBus.emit(Events.VESSEL_SELECTED, mmsi),
+      () => { if (this.mode === 'icon') this.redrawCanvas() },
+    )
+    this.map.on('resize', () => this.canvasLayer?.resize())
+
     if (onCoords) {
       this.map.on('mousemove', (e: L.LeafletMouseEvent) => onCoords(e.latlng.lat, e.latlng.lng))
     }
     this.map.on('click', () => { if (this.selectedMmsi !== null) this.deselect() })
     this.map.on('zoomend', () => this.onZoomChange())
-    const refreshViewport = () => {
+    // settled=true only once the gesture (drag/pinch/inertia) has actually
+    // ended — canvas content stays correctly aligned throughout via Leaflet's
+    // own pane CSS transform (translate *and* scale during zoom), so a full
+    // vessel redraw mid-gesture is wasted work and was the main source of lag
+    // on touch/trackpad two-finger pan+pinch and fast flick-inertia panning.
+    const refreshViewport = (settled: boolean) => {
       // Cluster bubbles are pre-duplicated across world-copies (see
       // buildClusters) and don't depend on the viewport, so panning never
       // needs to rebuild them — only zoom (cell size changes) does.
-      if (this.mode === 'icon') this.refreshIconViewport()
+      if (this.mode === 'icon') this.refreshIconViewport(settled)
       if (this.selectedMmsi !== null) {
         this.drawRoute(this.selectedMmsi)
         this.drawHistoryTrail(this.selectedMmsi)
       }
     }
-    this.map.on('moveend', refreshViewport)
-    // Also refresh continuously (rAF-throttled) while dragging — otherwise
-    // markers/clusters only appear once the drag ends, which looks like a
-    // flash of empty space when panning reveals a wrapped world-copy.
+    this.map.on('moveend', () => refreshViewport(true))
+    // Also reposition the (single, selected-vessel) DOM marker continuously
+    // (rAF-throttled) while dragging — otherwise it only appears once the
+    // drag ends, which looks like a flash of empty space when panning
+    // reveals a wrapped world-copy. The bulk canvas redraw is skipped here.
     let refreshQueued = false
     this.map.on('move', () => {
       if (refreshQueued) return
       refreshQueued = true
-      requestAnimationFrame(() => { refreshQueued = false; refreshViewport() })
+      requestAnimationFrame(() => { refreshQueued = false; refreshViewport(false) })
     })
 
     this.buildPortMarkers()
@@ -131,6 +147,7 @@ export class MapView {
     // Populate state; markers created only for non-cluster modes
     for (const v of allVessels.values()) this.upsert(v)
     if (this.mode === 'cluster') this.buildClusters()
+    else this.redrawCanvas()
 
     this.subs.push(
       EventBus.on<VesselState>(Events.VESSEL_UPDATED, v => { this.pending.set(v.mmsi, v) }),
@@ -152,6 +169,9 @@ export class MapView {
       if (this.selectedMmsi !== null && this.pending.has(this.selectedMmsi)) {
         this.drawHistoryTrail(this.selectedMmsi)
       }
+      if (this.mode === 'icon') {
+        this.redrawCanvas()
+      }
       this.pending.clear()
     }, 200)
   }
@@ -167,7 +187,7 @@ export class MapView {
     } else if (zoom < ICON_ZOOM && this.mode !== 'cluster') {
       this.switchToClusterMode()
     } else if (this.mode === 'icon') {
-      this.refreshIconViewport()
+      this.refreshIconViewport(true)
     } else {
       this.buildClusters()  // cell size changes every zoom level
     }
@@ -188,26 +208,28 @@ export class MapView {
       if (sel) this.markers.set(this.selectedMmsi, sel)
     }
     this.buildClusters()
+    this.canvasLayer?.clear()
   }
 
   private switchToIconMode(): void {
     if (!this.map) return
     this.mode = 'icon'
     this.clearClusters()
-    const bounds = this.map.getBounds()
-    for (const v of this.states.values()) {
-      // Selected vessel may already have a marker from cluster mode — don't duplicate it.
-      if (this.markers.has(v.mmsi)) continue
-      const lon = wrappedLon(v.lon, bounds)
-      if (lon !== null) this.createIconMarker(v, lon)
-    }
+    // Only the selected vessel needs a real DOM marker — everything else is
+    // bulk-rendered by canvasLayer below.
+    this.ensureSelectedMarker()
+    this.redrawCanvas()
   }
 
   // ── Cluster mode ──────────────────────────────────────────────────────────────
 
-  /** Selected vessel keeps its own marker even while clustered — create it if missing. */
+  /**
+   * Selected vessel always keeps its own real DOM marker — in cluster mode
+   * so it stays visible outside a bubble, in icon mode so popup/pan mechanics
+   * keep working while everything else is bulk-rendered by canvasLayer.
+   */
   private ensureSelectedMarker(): void {
-    if (this.selectedMmsi === null || this.mode !== 'cluster') return
+    if (this.selectedMmsi === null) return
     if (this.markers.has(this.selectedMmsi)) return
     const state = this.states.get(this.selectedMmsi)
     if (state) this.createIconMarker(state)
@@ -289,11 +311,17 @@ export class MapView {
 
   // ── Icon viewport refresh ─────────────────────────────────────────────────────
 
-  private refreshIconViewport(): void {
+  // settled=false is used for continuous mid-gesture (drag/pinch) callbacks —
+  // skips the bulk canvas redraw (content stays aligned via Leaflet's own
+  // pane transform meanwhile) but still keeps the lone selected-vessel DOM
+  // marker repositioned so it doesn't visibly lag behind.
+  private refreshIconViewport(settled: boolean): void {
     if (!this.map) return
-    // Pad so markers just outside the visible area already exist before a
+    // Pad so vessels just outside the visible area already render before a
     // drag reveals them — avoids a pop-in flash while panning.
     const bounds = this.map.getBounds().pad(0.5)
+    // The only real DOM marker left in icon mode is the selected vessel (if
+    // any) — reposition it into the currently-visible world-copy on pan.
     for (const [mmsi, m] of this.markers) {
       const v = this.states.get(mmsi)
       const lon = v ? wrappedLon(v.lon, bounds) : null
@@ -301,21 +329,20 @@ export class MapView {
         m.remove()
         this.markers.delete(mmsi)
       } else {
-        // Reposition into the currently-visible world-copy if the seam was crossed further.
         m.setLatLng([v.lat, lon])
       }
     }
-    for (const v of this.states.values()) {
-      if (this.markers.has(v.mmsi)) continue
-      const lon = wrappedLon(v.lon, bounds)
-      if (lon !== null) this.createIconMarker(v, lon)
-    }
+    if (settled) this.redrawCanvas()
   }
 
   // ── Marker creation ───────────────────────────────────────────────────────────
 
   private vesselColor(v: VesselState): string {
     return '#' + VesselMeshFactory.getColor(v.vesselCategory).toString(16).padStart(6, '0')
+  }
+
+  private redrawCanvas(): void {
+    this.canvasLayer?.redraw(this.states.values(), this.visStates, v => this.vesselColor(v), this.selectedMmsi)
   }
 
   private createIconMarker(v: VesselState, lon: number = v.lon): void {
@@ -357,6 +384,13 @@ export class MapView {
       this.setMarkerState(m, m === mmsi ? 'selected' : 'dimmed')
     }
 
+    // Promote to a real DOM marker so popup/pan mechanics below work — mirrors
+    // the same exemption cluster mode already gives the selected vessel.
+    this.ensureSelectedMarker()
+    if (this.mode === 'icon') {
+      this.redrawCanvas()
+    }
+
     const sel   = this.markers.get(mmsi)
     const state = this.states.get(mmsi)
     if (sel) {
@@ -392,6 +426,13 @@ export class MapView {
       if (m) { m.remove(); this.markers.delete(prevMmsi) }
       this.buildClusters()
     }
+    // In icon mode the selected vessel had a promoted DOM marker exempted
+    // from canvas rendering — drop it, canvasLayer picks it back up.
+    if (this.mode === 'icon' && prevMmsi !== null) {
+      const m = this.markers.get(prevMmsi)
+      if (m) { m.remove(); this.markers.delete(prevMmsi) }
+      this.redrawCanvas()
+    }
   }
 
   // ── Filter ────────────────────────────────────────────────────────────────────
@@ -405,6 +446,7 @@ export class MapView {
         : 'normal'
       this.setMarkerState(mmsi, vis)
     }
+    if (this.mode === 'icon') this.redrawCanvas()
   }
 
   private passesFilter(state: VesselState, f: FilterState): boolean {
@@ -418,27 +460,34 @@ export class MapView {
 
   search(query: string): void {
     if (!query) {
-      if (this.selectedMmsi === null) {
-        for (const mmsi of this.visStates.keys()) this.setMarkerState(mmsi, 'normal')
+      // Same 3-way rule applyFilter() uses — keeps the selected vessel's own
+      // highlight correct instead of leaving it stuck on whatever a prior
+      // search call last set it to.
+      for (const mmsi of this.visStates.keys()) {
+        this.setMarkerState(mmsi, mmsi === this.selectedMmsi ? 'selected' : this.selectedMmsi !== null ? 'dimmed' : 'normal')
       }
+      if (this.mode === 'icon') this.redrawCanvas()
       return
     }
 
     const q = query.toLowerCase()
     const matches: number[] = []
 
-    for (const [mmsi] of this.markers) {
-      const state    = this.states.get(mmsi)
-      const nameHit  = state?.name.toLowerCase().includes(q)
-      const mmsiHit  = mmsi.toString().includes(q)
-      if (nameHit || mmsiHit) {
-        this.setMarkerState(mmsi, 'normal')
-        matches.push(mmsi)
+    for (const [mmsi, state] of this.states) {
+      const nameHit = state.name.toLowerCase().includes(q)
+      const mmsiHit = mmsi.toString().includes(q)
+      const isMatch = nameHit || mmsiHit
+      if (isMatch) matches.push(mmsi)
+      // Selected vessel always keeps its own highlight, regardless of
+      // whether it matches the query — search shouldn't be able to dim it.
+      if (mmsi === this.selectedMmsi) {
+        this.setMarkerState(mmsi, 'selected')
       } else {
-        this.setMarkerState(mmsi, 'dimmed')
+        this.setMarkerState(mmsi, isMatch ? 'normal' : 'dimmed')
       }
     }
 
+    if (this.mode === 'icon') this.redrawCanvas()
     if (matches.length === 1) this.selectVessel(matches[0])
   }
 
@@ -527,9 +576,9 @@ export class MapView {
       this.visStates.set(vessel.mmsi, state)
     }
 
-    // In cluster mode individual markers aren't used (clusters rebuild on zoom/pan)
-    // except for the selected vessel, which keeps its own live-updating marker.
-    if (this.mode === 'cluster' && vessel.mmsi !== this.selectedMmsi) return
+    // Only the selected vessel gets a live-updating DOM marker — everyone
+    // else is bulk-rendered by canvasLayer (icon mode) or cluster bubbles.
+    if (vessel.mmsi !== this.selectedMmsi) return
 
     const hex = this.vesselColor(vessel)
     const m   = this.markers.get(vessel.mmsi)
@@ -639,6 +688,7 @@ export class MapView {
   destroy(): void {
     if (this.flushId) clearInterval(this.flushId)
     this.subs.forEach(u => u())
+    this.canvasLayer?.destroy()
     this.map?.remove()
   }
 }

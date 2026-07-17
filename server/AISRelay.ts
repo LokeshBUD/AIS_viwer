@@ -1,6 +1,13 @@
 import WebSocket from 'ws'
 
-const MAX_CACHE        = 8000
+// Generous safety ceiling only — under normal traffic the time-based purge
+// below (STALE_MS) is what actually bounds cache size, matching the same
+// 10-minute window the client's own VesselTracker uses (src/utils/constants.ts
+// STALE_VESSEL_MS). Keeping both on the same time window means a freshly
+// connected client's snapshot already IS the client's eventual steady-state
+// vessel set — no ~10min ramp-up watching the count climb.
+const MAX_CACHE        = 50_000
+const STALE_MS         = 10 * 60 * 1000
 const MAX_BACKOFF_MS   = 60_000   // cap reconnect delay at 60s
 const BASE_BACKOFF_MS  = 2_000    // start at 2s (aisstream 429 = server is busy, don't hammer)
 const MAX_CLIENTS      = Number(process.env.MAX_CLIENTS ?? 500)   // cap concurrent WS clients to bound snapshot/broadcast cost under a connection flood
@@ -26,6 +33,7 @@ export class AISRelay {
     setInterval(() => {
       console.log(`[relay] live msg rate: ${this.messageRate}/s, total: ${this.msgCount}, vessels: ${this.vesselCount}, clients: ${this.clientCount}`)
     }, 30_000)
+    setInterval(() => this.purgeStale(), 60_000)
   }
 
   connect(): void {
@@ -121,11 +129,26 @@ export class AISRelay {
     }
   }
 
+  /** Drop entries not updated within STALE_MS — same rule the client uses,
+   * so the cache always reflects "what's actually live right now" rather
+   * than growing until MAX_CACHE (a rare safety valve, not the normal path). */
+  private purgeStale(): void {
+    const cutoff = Date.now() - STALE_MS
+    for (const cache of [this.posCache, this.staticCache]) {
+      for (const [mmsi, entry] of cache) {
+        if (entry.ts < cutoff) cache.delete(mmsi)
+      }
+    }
+  }
+
   private cacheWithEviction(cache: Map<number, CachedMessage>, mmsi: number, raw: string): void {
-    if (cache.size >= MAX_CACHE && !cache.has(mmsi)) {
-      // Evict oldest entry
-      const firstKey = cache.keys().next().value
-      if (firstKey !== undefined) cache.delete(firstKey)
+    // True LRU: drop and re-insert on every update so Map iteration order
+    // (insertion order) tracks recency — eviction below always targets the
+    // least-recently-*updated* entry, not just the oldest-inserted one.
+    cache.delete(mmsi)
+    if (cache.size >= MAX_CACHE) {
+      const lruKey = cache.keys().next().value
+      if (lruKey !== undefined) cache.delete(lruKey)
     }
     cache.set(mmsi, { raw, ts: Date.now() })
   }

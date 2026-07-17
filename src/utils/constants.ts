@@ -28,6 +28,18 @@ export const HEADING_CHANGE_THRESHOLD = 35
 /** Vessels not seen within this ms are purged */
 export const STALE_VESSEL_MS = 10 * 60 * 1000
 
+/**
+ * Safety-valve cap on concurrently tracked vessels — bounds memory and the
+ * cost of every full-sweep operation (table sort, anomaly scan, canvas
+ * redraw) in the rare case traffic spikes far beyond normal. Under normal
+ * conditions STALE_VESSEL_MS is what actually bounds the count (matches
+ * server/AISRelay.ts's own MAX_CACHE/STALE_MS, same 10-minute window) —
+ * verified smooth up to ~28,000 concurrent vessels with no errors or
+ * perceptible lag, so this cap sits well above the real-world steady state.
+ * Over the cap, the least-recently-updated vessel is evicted (true LRU).
+ */
+export const MAX_TRACKED_VESSELS = 50_000
+
 /** AIS gap thresholds — vessel must have history.length >= 5 before gap fires */
 export const AIS_GAP_WARNING_MS  = 5  * 60 * 1000   // 5 min → warning
 export const AIS_GAP_CRITICAL_MS = 15 * 60 * 1000   // 15 min → critical

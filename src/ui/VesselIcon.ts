@@ -2,10 +2,10 @@ import L from 'leaflet'
 import type { VesselCategory } from '../ais/types'
 
 // Icon viewport: 14×22px, vessel points UP (north), rotated by COG
-const W = 14, H = 22, CX = 7, CY = 13
+export const W = 14, H = 22, CX = 7, CY = 13
 
 // SVG path per category — all pointing north, rotated via transform
-const SHAPES: Record<VesselCategory, string> = {
+export const SHAPES: Record<VesselCategory, string> = {
   // Large boxy hull with angled bow
   cargo:     'M7,0 L11,6 L11,21 L3,21 L3,6 Z',
   // Wider than cargo, blunter bow

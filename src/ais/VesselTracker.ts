@@ -1,7 +1,7 @@
 import { EventBus, Events } from '../utils/EventBus'
 import { RingBuffer } from '../utils/RingBuffer'
 import { parseRaw, extractPosition, extractStatic, shipTypeToCategory } from './AISParser'
-import { VESSEL_HISTORY_LEN, STALE_VESSEL_MS } from '../utils/constants'
+import { VESSEL_HISTORY_LEN, STALE_VESSEL_MS, MAX_TRACKED_VESSELS } from '../utils/constants'
 import type { VesselState, PositionSnapshot } from './types'
 import type { IHistoryStore } from '../utils/HistoryStore'
 
@@ -64,17 +64,32 @@ export class VesselTracker {
 
   private getOrCreate(mmsi: number, name: string): VesselState {
     let v = this.vessels.get(mmsi)
-    if (!v) {
-      v = {
-        mmsi, name,
-        lat: 0, lon: 0, sog: 0, cog: 0, trueHeading: 511, rot: 0,
-        navStatus: 'NotDefined', draught: 0, shipType: 0,
-        vesselCategory: 'unknown', callSign: '', destination: '',
-        lastUpdate: Date.now(), history: [],
-      }
+    if (v) {
+      // True LRU: move to the most-recently-updated end (Map iteration order
+      // follows insertion order, so delete+re-set moves it to the back).
+      this.vessels.delete(mmsi)
       this.vessels.set(mmsi, v)
-      this.history.set(mmsi, new RingBuffer<PositionSnapshot>(VESSEL_HISTORY_LEN))
+      return v
     }
+
+    if (this.vessels.size >= MAX_TRACKED_VESSELS) {
+      const lruMmsi = this.vessels.keys().next().value
+      if (lruMmsi !== undefined) {
+        this.vessels.delete(lruMmsi)
+        this.history.delete(lruMmsi)
+        EventBus.emit(Events.VESSEL_LOST, lruMmsi)
+      }
+    }
+
+    v = {
+      mmsi, name,
+      lat: 0, lon: 0, sog: 0, cog: 0, trueHeading: 511, rot: 0,
+      navStatus: 'NotDefined', draught: 0, shipType: 0,
+      vesselCategory: 'unknown', callSign: '', destination: '',
+      lastUpdate: Date.now(), history: [],
+    }
+    this.vessels.set(mmsi, v)
+    this.history.set(mmsi, new RingBuffer<PositionSnapshot>(VESSEL_HISTORY_LEN))
     return v
   }
 
