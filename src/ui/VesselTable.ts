@@ -117,6 +117,14 @@ export class VesselTable {
     this.countEl = panel.querySelector('#tbl-count')!
     this.tbody   = panel.querySelector('#tbl-body')!
 
+    // Delegated click listener — attached once instead of re-attaching to
+    // every row on each 2s renderRows() cycle.
+    this.tbody.addEventListener('click', (e) => {
+      const row = (e.target as HTMLElement).closest('tr[data-mmsi]') as HTMLElement | null
+      if (!row) return
+      EventBus.emit(Events.VESSEL_SELECTED, parseInt(row.dataset.mmsi!))
+    })
+
     this.updateHeaderMarks()
     document.querySelector('.hud-wrap')!.appendChild(panel)
   }
@@ -187,13 +195,6 @@ export class VesselTable {
     }).join('')
 
     this.tbody.innerHTML = html
-
-    this.tbody.querySelectorAll<HTMLElement>('tr[data-mmsi]').forEach(row => {
-      row.addEventListener('click', () => {
-        const mmsi = parseInt(row.dataset.mmsi!)
-        EventBus.emit(Events.VESSEL_SELECTED, mmsi)
-      })
-    })
   }
 
   private updateHeaderMarks(): void {

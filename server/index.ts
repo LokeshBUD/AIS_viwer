@@ -2,6 +2,7 @@ import dotenv from 'dotenv'
 dotenv.config()
 
 import express from 'express'
+import compression from 'compression'
 import { createServer } from 'http'
 import { WebSocketServer, WebSocket } from 'ws'
 import path from 'path'
@@ -25,6 +26,7 @@ if (process.env.NODE_ENV === 'production' && !HEALTH_TOKEN) {
 }
 
 const app = express()
+app.use(compression())
 const httpServer = createServer(app)
 const wss = new WebSocketServer({
   server: httpServer,
@@ -37,6 +39,11 @@ const wss = new WebSocketServer({
       return
     }
     cb(true)
+  },
+  perMessageDeflate: {
+    zlibDeflateOptions: { level: 6 },
+    threshold: 1024,
+    concurrencyLimit: 10,
   },
 })
 

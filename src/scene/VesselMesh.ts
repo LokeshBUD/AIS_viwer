@@ -179,7 +179,7 @@ export class VesselMesh {
     this.trail.geometry.setFromPoints(pts)
   }
 
-  private updateArc(state: VesselState, destChanged: boolean): void {
+  private async updateArc(state: VesselState, destChanged: boolean): Promise<void> {
     const port = lookupPort(state.destination)
     if (!port) { this.arc.hide(); return }
 
@@ -187,7 +187,7 @@ export class VesselMesh {
     if (!destChanged && this._lastArcTime !== 0 && now - this._lastArcTime < VesselMesh.ARC_RECOMPUTE_MS) return
     this._lastArcTime = now
 
-    const waypoints = maritimeRoute(state.lat, state.lon, port.lat, port.lon)
+    const waypoints = await maritimeRoute(state.lat, state.lon, port.lat, port.lon)
     this.arc.update(waypoints, destColor(state.destination))
   }
 }

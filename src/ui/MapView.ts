@@ -42,6 +42,9 @@ export class MapView {
   private states        = new Map<number, VesselState>()
 
   private routeLine:    L.Polyline | null = null
+  // Bumped on every drawRoute() call — lets an in-flight route resolve as stale
+  // if a newer selection superseded it before its async lookup finished.
+  private routeToken = 0
   private historyLines: L.Polyline[] = []
   private selectedMmsi: number | null = null
   private renderer!:    L.Canvas          // canvas for port markers + polylines
@@ -441,14 +444,18 @@ export class MapView {
 
   // ── Route line ────────────────────────────────────────────────────────────────
 
-  private drawRoute(mmsi: number): void {
-    this.clearRoute()
+  private async drawRoute(mmsi: number): Promise<void> {
+    const token = ++this.routeToken
     const state = this.states.get(mmsi)
-    if (!state) return
+    if (!state) { this.clearRoute(); return }
     const port = lookupPort(state.destination)
-    if (!port) return
+    if (!port) { this.clearRoute(); return }
     const col = '#' + destColor(state.destination).toString(16).padStart(6, '0')
-    const waypoints = maritimeRoute(state.lat, state.lon, port.lat, port.lon)
+    const waypoints = await maritimeRoute(state.lat, state.lon, port.lat, port.lon)
+    // A newer selection superseded this call while the route lookup was in
+    // flight — don't draw a stale route over whatever's now selected.
+    if (token !== this.routeToken) return
+    this.clearRoute()
     // Unwrap the route itself first (a route crossing the antimeridian must not
     // cut across the whole globe), then anchor point 0 (the vessel's own
     // position) to wherever its marker is currently rendered, so the line

@@ -6,19 +6,23 @@
  * that's the shortest path.
  */
 
-import { seaRoute, NoRouteError, SnapFailedError } from 'searoute-ts'
-
 export interface NavPoint { lat: number; lon: number; label: string }
+
+// searoute-ts bundles a ~1.8MB global maritime network graph — load it lazily
+// on first route request instead of eagerly in the main bundle, and cache the
+// module so repeat calls don't re-pay the import.
+let searouteMod: typeof import('searoute-ts') | null = null
 
 /**
  * Compute maritime route waypoints from (fromLat, fromLon) to (toLat, toLon).
  * Returns ordered array of NavPoints including source and destination.
  * Falls back to a direct line if no sea route can be found.
  */
-export function maritimeRoute(
+export async function maritimeRoute(
   fromLat: number, fromLon: number,
   toLat: number,   toLon: number,
-): NavPoint[] {
+): Promise<NavPoint[]> {
+  const { seaRoute, NoRouteError, SnapFailedError } = searouteMod ??= await import('searoute-ts')
   try {
     // appendOriginDestination: searoute-ts otherwise starts/ends the path at
     // the nearest snapped network node, which can visibly miss the vessel's
