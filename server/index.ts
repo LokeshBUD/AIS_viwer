@@ -54,18 +54,40 @@ wss.on('connection', (ws: WebSocket) => {
   relay.addClient(ws)
 })
 
-// Health endpoint — disabled unless HEALTH_TOKEN is set and matched, to avoid
-// leaking client/vessel counts to anyone probing the public tunnel URL.
+// Health/stats endpoint — disabled unless HEALTH_TOKEN is set and matched, to
+// avoid leaking client/vessel counts and process internals to anyone probing
+// the public tunnel URL.
 app.get('/health', (req, res) => {
   if (!HEALTH_TOKEN || req.get('x-health-token') !== HEALTH_TOKEN) {
     res.status(404).end()
     return
   }
+  const mem = process.memoryUsage()
   res.json({
     status: 'ok',
-    clients: relay.clientCount,
-    vessels: relay.vesselCount,
-    msgRate: relay.messageRate,
+    uptimeSec: relay.uptimeSec,
+    ais: {
+      connectionState: relay.aisConnectionState,
+      reconnectAttempts: relay.reconnectAttempts,
+    },
+    relay: {
+      clients: relay.clientCount,
+      maxClients: relay.maxClients,
+      vessels: relay.vesselCount,
+      staticRecords: relay.staticRecordCount,
+      msgRate: relay.messageRate,
+      totalMessages: relay.totalMessages,
+      cacheLimits: relay.cacheLimits,
+    },
+    process: {
+      pid: process.pid,
+      nodeVersion: process.version,
+      memoryMb: {
+        rss: Math.round(mem.rss / 1024 / 1024),
+        heapUsed: Math.round(mem.heapUsed / 1024 / 1024),
+        heapTotal: Math.round(mem.heapTotal / 1024 / 1024),
+      },
+    },
   })
 })
 

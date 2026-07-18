@@ -19,6 +19,14 @@ const TILE_SAT_LBLS = 'https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{
 const MIN_ZOOM  = Math.max(2, Math.ceil(Math.log2(window.innerWidth / 256)))
 const ICON_ZOOM = 8   // zoom ≥ this → SVG ship icons; below → cluster bubbles
 
+// Native 'click' can still fire after a real drag when the gesture started on
+// a marker/popup — those disable mousedown propagation to the map, so
+// Leaflet's own drag engine never engages and never suppresses the resulting
+// click. Tracking press/release distance ourselves (same pattern as
+// VesselCanvasLayer's CLICK_TOLERANCE) makes background-click-to-deselect
+// reliable regardless of where the gesture started.
+const BACKGROUND_CLICK_TOLERANCE = 4
+
 // Cell size in degrees — halves every 2 zoom levels so each zoom-in splits clusters by ~2, not 4
 // zoom 2-3→20°, 4-5→10°, 6-7→5°
 function clusterCellDeg(zoom: number): number {
@@ -113,7 +121,16 @@ export class MapView {
     if (onCoords) {
       this.map.on('mousemove', (e: L.LeafletMouseEvent) => onCoords(e.latlng.lat, e.latlng.lng))
     }
-    this.map.on('click', () => { if (this.selectedMmsi !== null) this.deselect() })
+    let lastPointerDownPos: { x: number; y: number } | null = null
+    this.map.getContainer().addEventListener('pointerdown', (e: PointerEvent) => {
+      lastPointerDownPos = { x: e.clientX, y: e.clientY }
+    })
+    this.map.on('click', (e: L.LeafletMouseEvent) => {
+      const down = lastPointerDownPos
+      const oe   = e.originalEvent
+      if (down && Math.hypot(oe.clientX - down.x, oe.clientY - down.y) > BACKGROUND_CLICK_TOLERANCE) return
+      if (this.selectedMmsi !== null) this.deselect()
+    })
     this.map.on('zoomend', () => this.onZoomChange())
     // settled=true only once the gesture (drag/pinch/inertia) has actually
     // ended — canvas content stays correctly aligned throughout via Leaflet's
@@ -329,7 +346,17 @@ export class MapView {
         m.remove()
         this.markers.delete(mmsi)
       } else {
-        m.setLatLng([v.lat, lon])
+        // Only reposition if it actually changed. Calling setLatLng
+        // unconditionally on every 'move' tick is harmless for a plain
+        // marker, but this one may have an open popup — Leaflet's popup
+        // auto-pan (_adjustPan → panBy) fires its own 'move' event on the
+        // map, which re-enters this handler and calls setLatLng again,
+        // recursing forever (stack overflow) once a vessel is selected and
+        // the map is panned/dragged while its popup is open.
+        const cur = m.getLatLng()
+        if (cur.lat !== v.lat || cur.lng !== lon) {
+          m.setLatLng([v.lat, lon])
+        }
       }
     }
     if (settled) this.redrawCanvas()

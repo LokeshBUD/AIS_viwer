@@ -167,9 +167,26 @@ export class AISRelay {
   }
 
   get clientCount(): number { return this.clients.size }
+  get maxClients(): number { return MAX_CLIENTS }
   get vesselCount(): number { return this.posCache.size }
+  get staticRecordCount(): number { return this.staticCache.size }
+  get totalMessages(): number { return this.msgCount }
+  get uptimeSec(): number { return Math.floor((Date.now() - this.startTime) / 1000) }
   get messageRate(): number {
     const uptime = (Date.now() - this.startTime) / 1000
     return uptime > 0 ? Math.round(this.msgCount / uptime) : 0
+  }
+  get aisConnectionState(): string {
+    if (!this.aisWs) return 'disconnected'
+    switch (this.aisWs.readyState) {
+      case WebSocket.CONNECTING: return 'connecting'
+      case WebSocket.OPEN: return 'connected'
+      case WebSocket.CLOSING: return 'closing'
+      default: return 'disconnected'
+    }
+  }
+  get reconnectAttempts(): number { return this.reconnectAttempt }
+  get cacheLimits(): { maxCache: number; staleMs: number } {
+    return { maxCache: MAX_CACHE, staleMs: STALE_MS }
   }
 }

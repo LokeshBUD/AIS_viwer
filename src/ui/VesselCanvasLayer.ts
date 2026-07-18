@@ -9,6 +9,9 @@ interface HitEntry { mmsi: number; x: number; y: number }
 
 const HIT_RADIUS = 9
 const VIEWPORT_PAD = 0.5
+// Matches Leaflet's own Draggable clickTolerance — a gesture with this much
+// movement between press and release still counts as a click, not a drag.
+const CLICK_TOLERANCE = 4
 
 // Precompute one Path2D per category — reuses the exact SVG path strings
 // already used for the DOM divIcon, so canvas ships look identical.
@@ -33,6 +36,12 @@ export class VesselCanvasLayer {
   // pan/zoom transform keeps already-drawn content correctly aligned with
   // the rest of the map without needing a redraw mid-drag.
   private origin = L.point(0, 0)
+  private downPos: { x: number; y: number } | null = null
+  // Set when a pointerup already resolved to a ship hit — the browser still
+  // fires a native 'click' afterward for a real click gesture, which must be
+  // swallowed so it doesn't also bubble to the map's own background-click
+  // deselect handler and immediately undo the selection just made.
+  private lastPointerWasHit = false
 
   constructor(
     private map: L.Map,
@@ -48,7 +57,15 @@ export class VesselCanvasLayer {
     this.canvas.style.pointerEvents = 'auto'
     this.ctx = this.canvas.getContext('2d')!
     map.getPanes().overlayPane.appendChild(this.canvas)
-    this.canvas.addEventListener('click', this.handleClick)
+    // Don't rely on the native 'click' event alone — on trackpads especially,
+    // a pan gesture that ends in a tap can have enough incidental movement
+    // that the browser synthesizes it as a drag instead of a click, so
+    // 'click' never fires at all. Tracking pointerdown/pointerup ourselves
+    // (like Leaflet's own Draggable clickTolerance) makes hit-testing
+    // reliable regardless of how the browser classifies the gesture.
+    this.canvas.addEventListener('pointerdown', this.handlePointerDown)
+    this.canvas.addEventListener('pointerup', this.handlePointerUp)
+    this.canvas.addEventListener('click', this.handleNativeClick)
     this.resize()
   }
 
@@ -130,7 +147,17 @@ export class VesselCanvasLayer {
     this.hitCache.push({ mmsi: v.mmsi, x, y })
   }
 
-  private handleClick = (e: MouseEvent): void => {
+  private handlePointerDown = (e: PointerEvent): void => {
+    this.downPos = { x: e.clientX, y: e.clientY }
+  }
+
+  private handlePointerUp = (e: PointerEvent): void => {
+    const down = this.downPos
+    this.downPos = null
+    this.lastPointerWasHit = false
+    if (!down) return
+    if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK_TOLERANCE) return // was a drag
+
     this.requestRedraw()
     const rect = this.canvas.getBoundingClientRect()
     const x = e.clientX - rect.left
@@ -142,12 +169,25 @@ export class VesselCanvasLayer {
       const d = Math.hypot(hit.x - x, hit.y - y)
       if (d < bestDist) { bestDist = d; best = hit }
     }
+
     if (best) {
+      this.lastPointerWasHit = true
       e.stopPropagation()
       this.onVesselClick(best.mmsi)
     }
-    // No hit: don't stopPropagation — let it bubble to the map's own click
-    // handler so clicking empty water still deselects.
+    // No hit: don't stopPropagation — let the browser's subsequent native
+    // 'click' bubble to the map's own click handler so clicking empty water
+    // still deselects.
+  }
+
+  // The browser still fires a native 'click' after pointerup for a real
+  // click gesture — swallow it when pointerup already handled a hit so it
+  // doesn't also bubble to the map's background-click deselect handler.
+  private handleNativeClick = (e: MouseEvent): void => {
+    if (this.lastPointerWasHit) {
+      e.stopPropagation()
+      this.lastPointerWasHit = false
+    }
   }
 
   /** Wipe drawn content — used when leaving icon mode so stale icons don't linger. */
@@ -158,7 +198,9 @@ export class VesselCanvasLayer {
   }
 
   destroy(): void {
-    this.canvas.removeEventListener('click', this.handleClick)
+    this.canvas.removeEventListener('pointerdown', this.handlePointerDown)
+    this.canvas.removeEventListener('pointerup', this.handlePointerUp)
+    this.canvas.removeEventListener('click', this.handleNativeClick)
     this.canvas.remove()
   }
 }

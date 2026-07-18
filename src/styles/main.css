@@ -743,6 +743,15 @@ body {
   z-index: 5;
 }
 
+/* Leaflet's own Canvas renderer (routes/trails/port dots, all interactive:
+   false) is oversized to cover pan-slack and paints after — and therefore
+   on top of — VesselCanvasLayer's own canvas in overlayPane. Left alone it
+   swallows every pointer event over the whole map, so vessel clicks never
+   reach VesselCanvasLayer at all. */
+.leaflet-overlay-pane canvas.leaflet-zoom-animated {
+  pointer-events: none;
+}
+
 /* Leaflet popup custom style */
 .ais-popup .leaflet-popup-content-wrapper {
   background: var(--panel-bg);
